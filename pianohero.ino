@@ -56,7 +56,7 @@ void loop() {
   }
 
   for ( int i = 0 ; i < KEYS; i++ ) {
-     setKBPixel(i, counter, 30, 30, 30);
+     setKBPixel(i, counter, 15, 15, 15);
   }
   
   strip.show();
