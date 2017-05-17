@@ -18,7 +18,7 @@ struct Note {
   uint8_t key;
   Note() {
     pos = 0;
-    len = 1;
+    len = 2;
     key = 0;
   }
   Note(int _pos, char _len, char _key) {
@@ -32,9 +32,9 @@ Note notes[10];
 
 void setKBPixel(int key, int pos, int rP, int gP, int bP) {
   // Odd keys are inverted
-  if ( key > KEYS ) key = KEYS;
+  if ( key > KEYS - 1 ) key = KEYS - 1;
   if ( key < 0 ) key = 0;
-  if ( pos >= PIXELS_PER_KEY ) pos = PIXELS_PER_KEY;
+  if ( pos > PIXELS_PER_KEY - 1 ) pos = PIXELS_PER_KEY - 1;
   if ( pos < 0 ) pos = 0;
 
   int block = PIXELS_PER_KEY * key;
@@ -46,14 +46,43 @@ void setKBPixel(int key, int pos, int rP, int gP, int bP) {
   strip.setPixelColor(block, rP, gP, bP);
 }
 
-bool inScreen(int noteIndex) {
-  
+void setKBPixelInv(int key, int pos, int rP, int gP, int bP) {
+  setKBPixel(key, PIXELS_PER_KEY - pos, rP, gP, bP);
+}
+
+bool inScreen(int notePos, int noteIndex) {
+  if ( notePos >= notes[noteIndex].pos + notes[noteIndex].len ) {
+    return false; // Past it's playtime
+  }
+  if ( notePos + SCREEN_HEIGHT < notes[noteIndex].pos ) {
+    return false; // Not yet in view
+  }
+  return true;
+
 }
 void setScreenState(float pos) {
-  int maxNote = 10;
-  int currentNote = maxNote * pos;
-  // Get first
-  Serial.println(currentNote);
+  int maxNote = 22;
+  int currentNote = ((maxNote + SCREEN_HEIGHT + 2) * pos) - SCREEN_HEIGHT - 2;
+  for ( int i = 0; i < 10; i++ ) {
+    if ( inScreen(currentNote, i) ) {
+      // Calculate position on screen
+      int pos = currentNote - notes[i].pos + SCREEN_HEIGHT;
+
+      if ( i % 2 ) {
+        setKBPixelInv(notes[i].key, pos, 0, 16, 14);
+      } else {
+        setKBPixelInv(notes[i].key, pos, 4, 8, 16);
+      }
+      for ( int l = 1; l < notes[i].len; l++) {
+        if ( i % 2 ) {
+          setKBPixelInv(notes[i].key, pos - l, 0, 7, 4);
+        } else {
+          setKBPixelInv(notes[i].key, pos - l, 1, 2, 6);
+        }
+
+      }
+    }
+  }
 }
 
 void setup() {
@@ -64,9 +93,16 @@ void setup() {
   notes[4].key = 4;
   notes[5].key = 4;
   notes[6].key = 4;
+  notes[7].key = 2;
+  notes[8].key = 2;
+  notes[9].key = 2;
   for ( int i = 0; i < 10; i++) {
-    notes[i].pos = i;
-    }
+    notes[i].pos = i*2;
+  }
+
+  notes[7].pos = 14 + 2;
+  notes[8].pos = 16 + 2;
+  notes[9].pos = 18 + 2;
 
   // put your setup code here, to run once:
   pinMode(6, OUTPUT);
