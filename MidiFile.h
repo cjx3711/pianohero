@@ -21,6 +21,10 @@ struct Note {
   }
 };
 
+union uint32_u {
+  uint32_t data;
+  byte bytes[4];
+};
 
 // struct BlockPointers {
 //   int currentBlock;
@@ -73,10 +77,41 @@ public:
     return notes[i];
   }
   void openFile(char * filename) {
+    Serial.println("-------");
     if ( !SD.exists(filename) ) {
       Serial.println("Missing midi");
-      midi = SD.open(filename);
+      return;
     }
+    midi = SD.open(filename);
+    Serial.println("Opened midi");
+    
+    byte buff[4];
+    uint32_u length;
+    midi.read(buff, 4);
+    Serial.println((char*)buff);
+    
+    midi.read(buff,4);
+    length.bytes[0] = buff[3];
+    length.bytes[1] = buff[2];
+    length.bytes[2] = buff[1];
+    length.bytes[3] = buff[0];
+    Serial.println(length.data);
+    
+    midi.seek(midi.position() + length.data);
+    
+    Serial.println(midi.position());
+    
+    midi.read(buff, 4);
+    Serial.println((char*)buff);
+    
+    midi.read(buff,4);
+    length.bytes[0] = buff[3];
+    length.bytes[1] = buff[2];
+    length.bytes[2] = buff[1];
+    length.bytes[3] = buff[0];
+    Serial.println(length.data);
+    // length = (int) buff;
+    // Serial.println(length);
     // Opens the midi file and reads all the important information about it.
 
     // Loop through chunks (first pass)
@@ -100,6 +135,14 @@ public:
     // Do integer wrangling here and progress the file
     return 0;
   }
+  
+  void reverse_array( byte array[], int arraylength ) {
+    for (int i = 0; i < (arraylength / 2); i++) {
+        byte temporary = array[i];                 // temporary wasn't declared
+        array[i] = array[(arraylength - 1) - i];
+        array[(arraylength - 1) - i] = temporary;
+    }
+}
 
 
 };

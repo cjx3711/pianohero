@@ -56,6 +56,8 @@ void setup() {
   File root = SD.open("/");
   printDirectory(root, 0);
   
+  midi.openFile("test-one.mid");
+  
   for ( int i = 0; i < PIXELS; i++ ) {
     strip.setPixelColor(i, 0, 0, 0);
   }
