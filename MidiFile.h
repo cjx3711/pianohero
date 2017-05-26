@@ -1,5 +1,7 @@
-#ifndef _MIDIFILE_H
+#ifndef _MIDIFILE_H_
 #define _MIDIFILE_H_
+
+#include <SD.h>
 
 #define CHUNK_SIZE 50
 
@@ -20,48 +22,87 @@ struct Note {
 };
 
 
-struct BlockPointers {
-  int currentBlock;
-  int maxBlocks;
-  // All the block pointers for a given midi channel;
-  // Stores an array
-  int * position; // Array of positions
-  int * time; // Array of times
-}
+// struct BlockPointers {
+//   int currentBlock;
+//   int maxBlocks;
+//   // All the block pointers for a given midi channel;
+//   // Stores an array
+//   int * position; // Array of positions
+//   int * time; // Array of times
+// };
 
 class MidiFile {
+public:
   // Metadata
   int microseconds; // Microseconds per quarter note
-  
-  BlockPointers pointers [];
-  
-  Note tempNotes[2 * CHUNK_SIZE];
-  void openFile(char * filename) {
-    // Opens the midi file and reads all the important information about it.
-  
-    // Loop through chunks (first pass)
+
+  // BlockPointers pointers [];
+
+  Note notes[10];
+  // Note tempNotes[2 * CHUNK_SIZE];
+  File midi;
+  void init() {
+    // Temp song
+    notes[0].key = 4;
+    notes[1].key = 2;
+    notes[2].key = 0;
+    notes[3].key = 2;
+    notes[4].key = 4;
+    notes[5].key = 4;
+    notes[6].key = 4;
+    notes[7].key = 2;
+    notes[8].key = 2;
+    notes[9].key = 2;
+    for ( int i = 0; i < 10; i++) {
+      notes[i].pos = i*2;
+    }
     
-      // Scan chunk for tempo information
-      
-      // Count chunks with actual music
+    notes[7].pos = 14 + 2;
+    notes[8].pos = 16 + 2;
+    notes[9].pos = 18 + 2;
     
-    // Loop through chunks (second pass)
-    
-      // Ignore chunks without music
-      
-      // Only record key down 0x09 and key up 0x08 events
-      
-      // Every CHUNK_SIZE notes, record the pointer and the start time
-      
-    pointers 
+    for ( int i = 0; i < 10; i++) {
+      Serial.print(notes[i].pos); Serial.print(' ');
+      Serial.print(notes[i].len); Serial.print(' ');
+      Serial.print(notes[i].key); Serial.println();
+    }
   }
   
+  Note getNote(int i) {
+    // TODO: Do some hot swapping stuff
+    return notes[i];
+  }
+  void openFile(char * filename) {
+    if ( !SD.exists(filename) ) {
+      Serial.println("Missing midi");
+      midi = SD.open(filename);
+    }
+    // Opens the midi file and reads all the important information about it.
+
+    // Loop through chunks (first pass)
+
+      // Scan chunk for tempo information
+
+      // Count chunks with actual music
+
+    // Loop through chunks (second pass)
+
+      // Ignore chunks without music
+
+      // Only record key down 0x09 and key up 0x08 events
+
+      // Every CHUNK_SIZE notes, record the pointer and the start time
+
+    // pointers
+  }
+
   int getNextVarInt( File f ) {
     // Do integer wrangling here and progress the file
+    return 0;
   }
-  
-  
-}
+
+
+};
 
 
 

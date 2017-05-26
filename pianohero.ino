@@ -1,9 +1,14 @@
 #include <Adafruit_NeoPixel.h>
 
+#include "MidiFile.h"
+
 #define KEYS 6
 #define PIXELS_PER_KEY 10
 #define PIXELS KEYS * PIXELS_PER_KEY
 #define STRIP_PIN 4
+
+#define CONTROL_1 25
+#define CONTROL_2 26
 
 // Notes that can be displayed on screen
 // Todo: This will eventually use the note length
@@ -12,23 +17,145 @@
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(KEYS * PIXELS_PER_KEY, STRIP_PIN, NEO_RGB + NEO_KHZ800);
 
 
-struct Note {
-  int pos;
-  uint8_t len;
-  uint8_t key;
-  Note() {
-    pos = 0;
-    len = 2;
-    key = 0;
-  }
-  Note(int _pos, char _len, char _key) {
-    pos = _pos;
-    len = _len;
-    key = _key;
-  }
-};
+float ledFloat;
 
-Note notes[10];
+uint8_t pc1 = 1;
+uint8_t pc2 = 1;
+uint8_t dir = 0;
+long lastMillis = 0;
+float pos = 0;
+float vel = 0;
+
+MidiFile midi;
+void setup() {
+  // put your setup code here, to run once:
+  pinMode(6, OUTPUT);
+  digitalWrite(6, HIGH);
+  
+  strip.begin();
+  for ( int i = 0; i < PIXELS; i++ ) {
+    strip.setPixelColor(i, 15, 5, 5);
+  }
+  strip.show();
+  
+  delay(1000);
+  
+  pinMode(CONTROL_1, INPUT);
+  pinMode(CONTROL_2, INPUT);
+  
+  Serial.begin(9600);
+  Serial.println("Start");
+  
+  midi.init();
+  
+  if ( SD.begin() ) {
+    Serial.println("SD connected");
+  } else {
+    Serial.println("SD fail");
+  }
+  File root = SD.open("/");
+  printDirectory(root, 0);
+  
+  for ( int i = 0; i < PIXELS; i++ ) {
+    strip.setPixelColor(i, 0, 0, 0);
+  }
+  strip.show();
+  
+  digitalWrite(6, LOW);
+}
+
+void loop() {
+
+  uint8_t c1 = digitalRead(CONTROL_1);
+  uint8_t c2 = digitalRead(CONTROL_2);
+
+  long curMillis = millis();
+  float delta = (float)(curMillis - lastMillis) / 1000.0f;
+  if ( vel > 0.02f ) vel = 0.02f;
+  if ( vel < -0.02f ) vel = -0.02f;
+//  vel *= 1.0f / (1.0f + (delta * 0.1f));
+  pos += vel * delta;
+
+  // Hack to get the stupid thing working.
+  if ( curMillis - lastMillis > 100 ) {
+    dir = 0;
+  }
+  if ( c1 != pc1 ) {
+    pc1 = c1;
+    if ( c1 == 1 ) {
+      if ( dir == 0 ) {
+        dir = -1;
+        lastMillis = millis();
+      } else {
+        dir = 0;
+        pos += 0.03;
+        Serial.println(pos);
+      }
+    }
+  }
+  if ( c2 != pc2 ) {
+    pc2 = c2;
+    if ( c2 == 1 ) {
+      if ( dir == 0 ) {
+        dir = 1;
+        lastMillis = millis();
+      } else {
+        dir = 0;
+        pos -= 0.03;
+        Serial.println(pos);
+      }
+    }
+  }
+
+  if ( pos < 0 ) pos = 0;
+  if ( pos > 1 ) pos = 1;
+
+  for ( int i = 0 ; i < KEYS * PIXELS_PER_KEY; i++ ) {
+     strip.setPixelColor(i, 0, 0, 0);
+  }
+
+  // float currentLed = pos * (PIXELS_PER_KEY - 1);
+  // ledFloat = ledFloat * 0.97 + currentLed * 0.03;
+  // int led = (int)ledFloat;
+  // float fractionalPart = ledFloat - led;
+
+  // int maxBrightness = 30;
+  // int led1 = maxBrightness * (1-fractionalPart);
+  // int led2 = maxBrightness * (fractionalPart);
+
+  setScreenState(pos);
+  // for ( int i = 0 ; i < KEYS; i++ ) {
+  //   setKBPixel(i,led,led1,led1,led1);
+  //   setKBPixel(i,led+1,led2,led2,led2);
+  // }
+
+  //  for ( int i = 0 ; i < KEYS; i++ ) {
+  //    setKBPixel(i,led,maxBrightness,maxBrightness,maxBrightness);
+  //  }
+  strip.show();
+}
+
+void printDirectory(File dir, int numTabs) {
+   while(true) {
+     File entry =  dir.openNextFile();
+     if (! entry) {
+       break;
+     }
+     for (uint8_t i=0; i<numTabs; i++) {
+       Serial.print('\t');
+     }
+     Serial.print(entry.name());
+     if (entry.isDirectory()) {
+       Serial.print("/");
+       Serial.println("\t\tDIR");
+       // printDirectory(entry, numTabs+1);
+     } else {
+       Serial.print("\t\t");
+       Serial.println(entry.size(), DEC);
+     }
+   }
+}
+
 
 void setKBPixel(int key, int pos, int rP, int gP, int bP) {
   // Odd keys are inverted
@@ -51,14 +178,13 @@ void setKBPixelInv(int key, int pos, int rP, int gP, int bP) {
 }
 
 bool inScreen(int notePos, int noteIndex) {
-  if ( notePos >= notes[noteIndex].pos + notes[noteIndex].len ) {
+  if ( notePos >= midi.getNote(noteIndex).pos + midi.getNote(noteIndex).len ) {
     return false; // Past it's playtime
   }
-  if ( notePos + SCREEN_HEIGHT < notes[noteIndex].pos ) {
+  if ( notePos + SCREEN_HEIGHT < midi.getNote(noteIndex).pos ) {
     return false; // Not yet in view
   }
   return true;
-
 }
 void setScreenState(float pos) {
   int maxNote = 22;
@@ -66,98 +192,21 @@ void setScreenState(float pos) {
   for ( int i = 0; i < 10; i++ ) {
     if ( inScreen(currentNote, i) ) {
       // Calculate position on screen
-      int pos = currentNote - notes[i].pos + SCREEN_HEIGHT;
+      int pos = currentNote - midi.getNote(i).pos + SCREEN_HEIGHT;
 
       if ( i % 2 ) {
-        setKBPixelInv(notes[i].key, pos, 0, 16, 14);
+        setKBPixelInv(midi.getNote(i).key, pos, 0, 16, 14);
       } else {
-        setKBPixelInv(notes[i].key, pos, 4, 8, 16);
+        setKBPixelInv(midi.getNote(i).key, pos, 4, 8, 16);
       }
-      for ( int l = 1; l < notes[i].len; l++) {
+      for ( int l = 1; l < midi.getNote(i).len; l++) {
         if ( i % 2 ) {
-          setKBPixelInv(notes[i].key, pos - l, 0, 7, 4);
+          setKBPixelInv(midi.getNote(i).key, pos - l, 0, 7, 4);
         } else {
-          setKBPixelInv(notes[i].key, pos - l, 1, 2, 6);
+          setKBPixelInv(midi.getNote(i).key, pos - l, 1, 2, 6);
         }
 
       }
     }
   }
-}
-
-void setup() {
-  notes[0].key = 4;
-  notes[1].key = 2;
-  notes[2].key = 0;
-  notes[3].key = 2;
-  notes[4].key = 4;
-  notes[5].key = 4;
-  notes[6].key = 4;
-  notes[7].key = 2;
-  notes[8].key = 2;
-  notes[9].key = 2;
-  for ( int i = 0; i < 10; i++) {
-    notes[i].pos = i*2;
-  }
-
-  notes[7].pos = 14 + 2;
-  notes[8].pos = 16 + 2;
-  notes[9].pos = 18 + 2;
-
-  // put your setup code here, to run once:
-  pinMode(6, OUTPUT);
-  digitalWrite(6, HIGH);
-  delay(1000);
-
-  Serial.begin(9600);
-  Serial.println("Start");
-  for ( int i = 0; i < 10; i++) {
-    Serial.print(notes[i].pos); Serial.print(' ');
-    Serial.print(notes[i].len); Serial.print(' ');
-    Serial.print(notes[i].key); Serial.println();
-  }
-
-  strip.begin();
-
-  for ( int i = 0; i < PIXELS; i++ ) {
-    strip.setPixelColor(i, 20, 20, 40);
-  }
-  strip.show();
-
-  digitalWrite(6, LOW);
-}
-
-float ledFloat;
-
-void loop() {
-  // put your main code here, to run repeatedly:
-  int val = analogRead(0);    // read the value from the sensor
-
-  for ( int i = 0 ; i < KEYS * PIXELS_PER_KEY; i++ ) {
-     strip.setPixelColor(i, 0, 0, 0);
-  }
-
-  float pos = (float)val / 1024;
-
-  float currentLed = pos * (PIXELS_PER_KEY - 1);
-  ledFloat = ledFloat * 0.97 + currentLed * 0.03;
-  int led = (int)ledFloat;
-  float fractionalPart = ledFloat - led;
-
-  int maxBrightness = 30;
-  int led1 = maxBrightness * (1-fractionalPart);
-  int led2 = maxBrightness * (fractionalPart);
-
-  setScreenState(pos);
-  // for ( int i = 0 ; i < KEYS; i++ ) {
-  //   setKBPixel(i,led,led1,led1,led1);
-  //   setKBPixel(i,led+1,led2,led2,led2);
-  // }
-
-//  for ( int i = 0 ; i < KEYS; i++ ) {
-//    setKBPixel(i,led,maxBrightness,maxBrightness,maxBrightness);
-//  }
-
-  strip.show();
-//  delay(100);
 }
