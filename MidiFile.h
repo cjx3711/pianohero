@@ -133,6 +133,17 @@ public:
 
   int getNextVarInt( File f ) {
     // Do integer wrangling here and progress the file
+    byte buffer[4];
+    
+    buffer[0] = 129; // 10000001
+    buffer[1] = 12;  // 00001100
+    buffer[2] = 0;
+    buffer[3] = 0;
+    
+    for ( int i = 0 ; i < 4; i++ ) {
+      bool read = bitRead(buffer[i], 0);
+      Serial.println(read);
+    }
     return 0;
   }
   
