@@ -32,56 +32,7 @@ void setup() {
   Serial.println("Start");
   // put your setup code here, to run once:
   pinMode(6, OUTPUT);
-  digitalWrite(6, HIGH);
-  
-  // Do integer wrangling here and progress the file
-  byte buffer[4];
-  
-  buffer[0] = 0xBD; // 10000001
-  buffer[1] = 0x84;  // 00001100
-  buffer[2] = 0x40;
-  buffer[3] = 0x12;
-  uint32_t read = 0;
-  uint8_t bytes = 0;
-  for ( uint8_t i = 0; i < 8; i++ ) {
-    Serial.print(bitRead(buffer[0], 7-i));
-  }
-  Serial.println();
-  for ( uint8_t i = 0; i < 8; i++ ) {
-    Serial.print(bitRead(buffer[1], 7-i));
-  }
-  Serial.println();
-  for ( uint8_t i = 0; i < 8; i++ ) {
-    Serial.print(bitRead(buffer[2], 7-i));
-  }
-  Serial.println();
-  for ( uint8_t i = 0; i < 8; i++ ) {
-    Serial.print(bitRead(buffer[3], 7-i));
-  }
-  Serial.println();
-  // Count the bytes
-  for ( uint8_t i = 0 ; i < 4; i++ ) {
-    bool bit = bitRead(buffer[i], 7); // Read the leftmost bit
-    bytes++;
-    if ( !bit ) break;
-    Serial.print(bit);
-  }
-  Serial.println();
-  Serial.println(bytes);
-  // Get the number from the back
-  uint8_t pos = 0;
-  for ( int8_t i = bytes - 1; i >= 0; i-- ) {
-    for (uint8_t j = 0; j < 7; j++) {
-      bitWrite(read, pos, bitRead(buffer[i], j));
-      pos++;
-    }
-  }
-  
-  for ( uint8_t i = 0; i < 32; i++ ) {
-    Serial.print(bitRead(read, 31 - i));
-  }
-  Serial.println();
-  Serial.println(read);
+  digitalWrite(6, HIGH)
   
   strip.begin();
   for ( int i = 0; i < PIXELS; i++ ) {

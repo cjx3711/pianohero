@@ -131,20 +131,27 @@ public:
     // pointers
   }
 
-  int getNextVarInt( File f ) {
+  uint32_t getNextVarInt( File f ) {
     // Do integer wrangling here and progress the file
     byte buffer[4];
-    
-    buffer[0] = 129; // 10000001
-    buffer[1] = 12;  // 00001100
-    buffer[2] = 0;
-    buffer[3] = 0;
-    
-    for ( int i = 0 ; i < 4; i++ ) {
-      bool read = bitRead(buffer[i], 0);
-      Serial.println(read);
+    uint32_t read = 0;
+    uint8_t byteCount = 0; // Byte count
+    // Count the bytes
+    for ( uint8_t i = 0 ; i < 4; i++ ) {
+      buffer[i] = f.read();
+      bool bit = bitRead(buffer[i], 7); // Read the leftmost bit
+      byteCount++;
+      if ( !bit ) break;
     }
-    return 0;
+    // Get the number from the back
+    uint8_t pos = 0;
+    for ( int8_t i = byteCount - 1; i >= 0; i-- ) {
+      for (uint8_t j = 0; j < 7; j++) {
+        bitWrite(read, pos, bitRead(buffer[i], j));
+        pos++;
+      }
+    }
+    return read;
   }
   
   void reverse_array( byte array[], int arraylength ) {
