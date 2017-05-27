@@ -32,7 +32,7 @@ void setup() {
   Serial.println("Start");
   // put your setup code here, to run once:
   pinMode(6, OUTPUT);
-  digitalWrite(6, HIGH)
+  digitalWrite(6, HIGH);
   
   strip.begin();
   for ( int i = 0; i < PIXELS; i++ ) {

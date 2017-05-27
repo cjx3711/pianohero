@@ -5,6 +5,11 @@
 
 #define CHUNK_SIZE 50
 
+// The number representations of the ascii code for
+// 'MThd' and 'MTrk'
+#define MTHD 1297377380
+#define MTRK 1297379947
+
 struct Note {
   int pos;
   uint8_t len;
@@ -26,6 +31,11 @@ union uint32_u {
   byte bytes[4];
 };
 
+union uint16_u {
+  uint16_t data;
+  byte bytes[2];
+};
+
 // struct BlockPointers {
 //   int currentBlock;
 //   int maxBlocks;
@@ -39,12 +49,12 @@ class MidiFile {
 public:
   // Metadata
   int microseconds; // Microseconds per quarter note
-
+  uint16_t format, tracks, division;
   // BlockPointers pointers [];
 
   Note notes[10];
   // Note tempNotes[2 * CHUNK_SIZE];
-  File midi;
+  File midiFile;
   void init() {
     // Temp song
     notes[0].key = 4;
@@ -82,43 +92,27 @@ public:
       Serial.println("Missing midi");
       return;
     }
-    midi = SD.open(filename);
-    Serial.println("Opened midi");
+    midiFile = SD.open(filename);
+    Serial.println("Opened mifi");
     
-    byte buff[4];
-    uint32_u length;
-    midi.read(buff, 4);
-    Serial.println((char*)buff);
-    
-    midi.read(buff,4);
-    length.bytes[0] = buff[3];
-    length.bytes[1] = buff[2];
-    length.bytes[2] = buff[1];
-    length.bytes[3] = buff[0];
-    Serial.println(length.data);
-    
-    midi.seek(midi.position() + length.data);
-    
-    Serial.println(midi.position());
-    
-    midi.read(buff, 4);
-    Serial.println((char*)buff);
-    
-    midi.read(buff,4);
-    length.bytes[0] = buff[3];
-    length.bytes[1] = buff[2];
-    length.bytes[2] = buff[1];
-    length.bytes[3] = buff[0];
-    Serial.println(length.data);
-    // length = (int) buff;
-    // Serial.println(length);
-    // Opens the midi file and reads all the important information about it.
+    // Opens the mififile and reads all the important information about it.
 
     // Loop through chunks (first pass)
-
-      // Scan chunk for tempo information
-
-      // Count chunks with actual music
+    while(midiFile.position() < midiFile.size()) {
+      Serial.print("Chunk Pos: ");
+      Serial.print(midiFile.position());
+      uint32_t header = readInt32(midiFile);
+      switch( header ) {
+        case MTHD:
+          Serial.println(" - Header");
+          readHeader(midiFile); // Scan chunk for tempo information
+        break;
+        case MTRK:
+          Serial.println(" - Track");
+          readTrack(midiFile); // Count chunks with actual music
+        break;
+      }
+    }
 
     // Loop through chunks (second pass)
 
@@ -130,8 +124,108 @@ public:
 
     // pointers
   }
-
-  uint32_t getNextVarInt( File f ) {
+  
+  void readHeader(File &f) {
+    uint32_t length = readInt32(f);
+    uint32_t end = f.position() + length;
+    format = readInt16(f);
+    tracks = readInt16(f);
+    division = readInt16(f);
+    f.seek(end); // This should not be required, but just in case
+  }
+  
+  void readTrack(File &f) {
+    uint32_t length = readInt32(f);
+    uint32_t end = f.position() + length;
+    
+    // Do track reading stuff here
+    while(f.position() < end) {
+      uint32_t delta = readIntMidi(f);
+      uint16_t type = readInt16(f);
+      switch(type) {
+        case 0xFF: // Meta event
+          readMeta(f);
+        break;
+        case 0xF0: // System Exclusive event
+        case 0xF7:
+          readSysex(f);
+        break;
+        default:
+          readMidi(f, type );
+        break;
+      }
+    }
+    f.seek(end);
+  }
+  
+  void readMeta(File &f) {
+    Serial.println("Meta");
+    uint16_t metaType = readInt16(f);
+    uint32_t length = readIntMidi(f);
+    
+    if ( metaType == 0x51 ) { // Tempo event
+      Serial.println("Tempo event");
+    } 
+    f.seek(f.position() + length);
+  }
+  
+  void readSysex(File &f) {
+    Serial.println("Sysex");
+    uint32_t length = readIntMidi(f);
+    // Ignore sysex events, we're not dealing with it here.
+    f.seek(f.position() + length);
+  }
+  
+  void readMidi(File &f, uint8_t type) {
+    Serial.println("Midi");
+    uint8_t first4 = type >> 4;
+    
+    // There are lots of other event s, but this program will ignore it
+    if ( first4 == 8 || first4 == 9 ) {
+      uint8_t channel = type & 15; // 00001111
+      Serial.print(channel); Serial.print(" ");
+      if ( first4 == 8 ) {
+        Serial.println("Up");
+      } else {
+        Serial.println("Down");
+      }
+    }
+  }
+private:
+  
+  // uint16_t flip16(uint16_t n) {
+  //   uint16_t flip;
+  //   flip.bytes[0] = bitRead(n, 0);
+  //   flip.bytes[1] = bitRead(n, 1);
+  // }
+  // 
+  // uint16_t flip32(uint32_t n) {
+  //   uint32_t flip;
+  //   flip.bytes[0] = bitRead(n, 0);
+  //   flip.bytes[1] = bitRead(n, 1);
+  //   flip.bytes[2] = bitRead(n, 2);
+  //   flip.bytes[3] = bitRead(n, 3);
+  // }
+  
+  uint32_t readInt32(File &f) {
+    uint32_u ret;
+    byte buffer[4];
+    f.read(buffer,4);
+    ret.bytes[0] = buffer[3];
+    ret.bytes[1] = buffer[2];
+    ret.bytes[2] = buffer[1];
+    ret.bytes[3] = buffer[0];
+    return ret.data;
+  }
+  uint32_t readInt16(File &f) {
+    uint16_u ret;
+    byte buffer[2];
+    f.read(buffer,2);
+    ret.bytes[0] = buffer[1];
+    ret.bytes[1] = buffer[0];
+    return ret.data;
+  }
+  uint32_t readIntMidi(File &f) {
     // Do integer wrangling here and progress the file
     byte buffer[4];
     uint32_t read = 0;
