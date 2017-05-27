@@ -131,17 +131,24 @@ public:
     format = readInt16(f);
     tracks = readInt16(f);
     division = readInt16(f);
+    Serial.print("Fmt: "); Serial.println(format);
+    Serial.print("Trk: "); Serial.println(tracks);
+    Serial.print("Div: "); Serial.println(division);
     f.seek(end); // This should not be required, but just in case
   }
   
   void readTrack(File &f) {
     uint32_t length = readInt32(f);
     uint32_t end = f.position() + length;
-    
+    Serial.print("Chunk len: "); Serial.println(length);
     // Do track reading stuff here
     while(f.position() < end) {
       uint32_t delta = readIntMidi(f);
-      uint16_t type = readInt16(f);
+      uint8_t type = readInt8(f);
+      
+      Serial.print("d"); Serial.print(delta);
+      Serial.print(' ');
+      printBits(type, 8);
       switch(type) {
         case 0xFF: // Meta event
           readMeta(f);
@@ -151,7 +158,7 @@ public:
           readSysex(f);
         break;
         default:
-          readMidi(f, type );
+          readMidi(f, type);
         break;
       }
     }
@@ -159,8 +166,8 @@ public:
   }
   
   void readMeta(File &f) {
-    Serial.println("Meta");
-    uint16_t metaType = readInt16(f);
+    Serial.println(" - Meta");
+    uint8_t metaType = readInt8(f);
     uint32_t length = readIntMidi(f);
     
     if ( metaType == 0x51 ) { // Tempo event
@@ -170,20 +177,25 @@ public:
   }
   
   void readSysex(File &f) {
-    Serial.println("Sysex");
+    Serial.println(" - Sysex");
     uint32_t length = readIntMidi(f);
     // Ignore sysex events, we're not dealing with it here.
     f.seek(f.position() + length);
   }
   
   void readMidi(File &f, uint8_t type) {
-    Serial.println("Midi");
-    uint8_t first4 = type >> 4;
+    Serial.print(" - Midi ");
+    uint8_t first4 = type >> 4; 
+    uint8_t data1 = readInt8(f);
+    uint8_t data2 = readInt8(f);
+    
+    Serial.println(first4);
     
     // There are lots of other event s, but this program will ignore it
     if ( first4 == 8 || first4 == 9 ) {
       uint8_t channel = type & 15; // 00001111
       Serial.print(channel); Serial.print(" ");
+      Serial.print(data1); Serial.print(" ");
       if ( first4 == 8 ) {
         Serial.println("Up");
       } else {
@@ -206,6 +218,13 @@ private:
   //   flip.bytes[2] = bitRead(n, 2);
   //   flip.bytes[3] = bitRead(n, 3);
   // }
+
+  void printBits(uint8_t b, uint8_t n) {
+    for ( int i = 0; i < n; i++ ) {
+      Serial.print(bitRead(b, 7-i));
+    }
+    Serial.println("b");
+  }
   
   uint32_t readInt32(File &f) {
     uint32_u ret;
@@ -217,13 +236,16 @@ private:
     ret.bytes[3] = buffer[0];
     return ret.data;
   }
-  uint32_t readInt16(File &f) {
+  uint16_t readInt16(File &f) {
     uint16_u ret;
     byte buffer[2];
     f.read(buffer,2);
     ret.bytes[0] = buffer[1];
     ret.bytes[1] = buffer[0];
     return ret.data;
+  }
+  uint8_t readInt8(File &f) {
+    return f.read();
   }
   uint32_t readIntMidi(File &f) {
     // Do integer wrangling here and progress the file
