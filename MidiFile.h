@@ -38,21 +38,22 @@ union uint16_u {
   byte bytes[2];
 };
 
-// struct BlockPointers {
-//   int currentBlock;
-//   int maxBlocks;
-//   // All the block pointers for a given midi channel;
-//   // Stores an array
-//   int * position; // Array of positions
-//   int * time; // Array of times
-// };
+struct BlockPointers {
+  uint16_t currentBlock;
+  uint16_t maxBlocks;
+  // All the block pointers for a given midi channel;
+  // Stores an array
+  uint16_t * position; // Array of positions
+  uint16_t * time; // Array of times
+};
 
 class MidiFile {
 public:
   // Metadata
   int microseconds; // Microseconds per quarter note
   uint16_t format, tracks, division;
-  // BlockPointers pointers [];
+  BlockPointers * trackBlocks;
+  uint8_t trackCount;
 
   Note notes[10];
   // Note tempNotes[2 * CHUNK_SIZE];
@@ -101,7 +102,10 @@ public:
     
     // Opens the mififile and reads all the important information about it.
 
+    
+    trackCount = 0;
     // Loop through chunks (first pass)
+    // Gets the header information and counts the number of tracks with midi information
     while(midiFile.position() < midiFile.size()) {
       #ifdef MIDI_DEBUG
         Serial.print("Chunk Pos: ");
@@ -109,19 +113,53 @@ public:
       #endif
       uint32_t header = readInt32(midiFile);
       switch( header ) {
-        case MTHD:
+        case MTHD: {
           Serial.println(" - Header");
           readHeader(midiFile); // Scan chunk for tempo information
-        break;
-        case MTRK:
+          break;
+        }
+        case MTRK: {
           Serial.println(" - Track");
-          readTrack(midiFile); // Count chunks with actual music
-        break;
+          uint32_t pos = midiFile.position();
+          if ( checkTrackForMidi(midiFile) ) { // Count chunks with actual music
+            Serial.println("Music track");
+            trackCount++;
+          } else {
+            midiFile.seek(pos);
+            readTrack(midiFile); // Get all the metadata out of the track
+          }
+          break;
+        }
       }
     }
-
+    
+    // Creating the block arrays
+    uint8_t blockIndex = 0;
+    trackBlocks = (BlockPointers*) malloc(sizeof(BlockPointers) * trackCount);
+    for ( uint8_t i = 0; i < trackCount; i++ ) {
+      trackBlocks[i].currentBlock = 0;
+      trackBlocks[i].maxBlocks = 0;
+      trackBlocks[i].position (uint16_t * ) malloc(sizeof(uint16*) * CHUNK_SIZE);
+      trackBlocks[i].time (uint16_t * ) malloc(sizeof(uint16*) * CHUNK_SIZE);
+    }
+    midiFile.seek(0);
     // Loop through chunks (second pass)
-
+    while(midiFile.position() < midiFile.size()) {
+      uint32_t header = readInt32(midiFile);
+      switch( header ) {
+        case MTRK: {
+          uint32_t pos = midiFile.position();
+          if ( checkTrackForMidi(midiFile) ) { // Count chunks with actual music
+            readTrack(midiFile); // Get all the metadata out of the track
+          }
+          break;
+        }
+        case MTHD: {
+          skipHeader(midiFile); // Scan chunk for tempo information
+          break;
+        }
+      }
+    }
       // Ignore chunks without music
 
       // Only record key down 0x09 and key up 0x08 events
@@ -144,6 +182,10 @@ public:
     #endif
     f.seek(end); // This should not be required, but just in case
   }
+  void skipHeader(File &f) {
+    uint32_t length = readInt32(f);
+    f.seek(f.position() + length);
+  }
   
   /**
    * Checks if a track has midi data
@@ -157,34 +199,40 @@ public:
       uint32_t delta = readIntMidi(f);
       uint8_t type = readInt8(f);
       switch(type) {
-        case 0xFF: // Meta event
+        case 0xFF: {// Meta event
           uint8_t metaType = readInt8(f);
           uint32_t length = readIntMidi(f);
           f.seek(f.position() + length);
           break;
+        }
         case 0xF0: // System Exclusive event
-        case 0xF7:
+        case 0xF7: {
           uint32_t length = readIntMidi(f);
           // Ignore sysex events, we're not dealing with it here.
           f.seek(f.position() + length);
           break;
-        case 0xc0 ... 0xdf:	// MIDI message with 1 parameter
+        }
+        case 0xc0 ... 0xdf:	{ // MIDI message with 1 parameter
           size = 2;
           readInt8(f);
           break;
+        }
+        
         case 0x80 ... 0xBf:	// MIDI message with 2 parameters
-	      case 0xe0 ... 0xef:
+	      case 0xe0 ... 0xef: {
           size = 3;
           readInt8(f); readInt8(f);
           if ( type >> 4 == 8 || type >> 4 == 9 ) {
             hasMidi = true;
           }
           break;
-        case 0x00 ... 0x7f:	// MIDI run on message
+        }  
+        case 0x00 ... 0x7f:	{ // MIDI run on message
           for (uint8_t i = 2; i < size; i++) {
             readInt8(f);	// Read next byte and dispose
           }	
           break;
+        }
       }
       if ( hasMidi ) break;
     }
@@ -250,7 +298,7 @@ public:
         Serial.println("Text event");
         char * text = (char*)malloc(length);
         f.read(text, length);
-        Serial.print('\t')
+        Serial.print('\t');
         Serial.println(text);
       break;
     }
