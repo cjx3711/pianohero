@@ -10,6 +10,8 @@
 #define MTHD 1297377380
 #define MTRK 1297379947
 
+// #define MIDI_DEBUG
+
 struct Note {
   int pos;
   uint8_t len;
@@ -75,11 +77,13 @@ public:
     notes[8].pos = 16 + 2;
     notes[9].pos = 18 + 2;
     
-    for ( int i = 0; i < 10; i++) {
-      Serial.print(notes[i].pos); Serial.print(' ');
-      Serial.print(notes[i].len); Serial.print(' ');
-      Serial.print(notes[i].key); Serial.println();
-    }
+    #ifdef MIDI_DEBUG
+      for ( int i = 0; i < 10; i++) {
+        Serial.print(notes[i].pos); Serial.print(' ');
+        Serial.print(notes[i].len); Serial.print(' ');
+        Serial.print(notes[i].key); Serial.println();
+      }
+    #endif
   }
   
   Note getNote(int i) {
@@ -93,14 +97,16 @@ public:
       return;
     }
     midiFile = SD.open(filename);
-    Serial.println("Opened mifi");
+    Serial.println("Opened midi");
     
     // Opens the mififile and reads all the important information about it.
 
     // Loop through chunks (first pass)
     while(midiFile.position() < midiFile.size()) {
-      Serial.print("Chunk Pos: ");
-      Serial.print(midiFile.position());
+      #ifdef MIDI_DEBUG
+        Serial.print("Chunk Pos: ");
+        Serial.print(midiFile.position());
+      #endif
       uint32_t header = readInt32(midiFile);
       switch( header ) {
         case MTHD:
@@ -131,65 +137,146 @@ public:
     format = readInt16(f);
     tracks = readInt16(f);
     division = readInt16(f);
-    Serial.print("Fmt: "); Serial.println(format);
-    Serial.print("Trk: "); Serial.println(tracks);
-    Serial.print("Div: "); Serial.println(division);
+    #ifdef MIDI_DEBUG
+      Serial.print("Fmt: "); Serial.println(format);
+      Serial.print("Trk: "); Serial.println(tracks);
+      Serial.print("Div: "); Serial.println(division);
+    #endif
     f.seek(end); // This should not be required, but just in case
   }
   
-  void readTrack(File &f) {
+  /**
+   * Checks if a track has midi data
+   */
+  bool checkTrackForMidi(File &f) {
     uint32_t length = readInt32(f);
     uint32_t end = f.position() + length;
-    Serial.print("Chunk len: "); Serial.println(length);
+    uint8_t size = 0; // Size used for midi run on messages// Do track reading stuff here
+    bool hasMidi = false;
+    while(f.position() < end) {
+      uint32_t delta = readIntMidi(f);
+      uint8_t type = readInt8(f);
+      switch(type) {
+        case 0xFF: // Meta event
+          uint8_t metaType = readInt8(f);
+          uint32_t length = readIntMidi(f);
+          f.seek(f.position() + length);
+          break;
+        case 0xF0: // System Exclusive event
+        case 0xF7:
+          uint32_t length = readIntMidi(f);
+          // Ignore sysex events, we're not dealing with it here.
+          f.seek(f.position() + length);
+          break;
+        case 0xc0 ... 0xdf:	// MIDI message with 1 parameter
+          size = 2;
+          readInt8(f);
+          break;
+        case 0x80 ... 0xBf:	// MIDI message with 2 parameters
+	      case 0xe0 ... 0xef:
+          size = 3;
+          readInt8(f); readInt8(f);
+          if ( type >> 4 == 8 || type >> 4 == 9 ) {
+            hasMidi = true;
+          }
+          break;
+        case 0x00 ... 0x7f:	// MIDI run on message
+          for (uint8_t i = 2; i < size; i++) {
+            readInt8(f);	// Read next byte and dispose
+          }	
+          break;
+      }
+      if ( hasMidi ) break;
+    }
+    return hasMidi;
+  }
+  
+  void readTrack(File &f) {
+    // https://github.com/5shekel/midi.player/blob/master/libs/MD_MIDIFile/MD_MIDITrack.cpp
+    uint32_t length = readInt32(f);
+    uint32_t end = f.position() + length;
+    uint8_t size = 0; // Size used for midi run on messages
+    #ifdef MIDI_DEBUG
+      Serial.print("Chunk len: "); Serial.println(length);
+    #endif
     // Do track reading stuff here
     while(f.position() < end) {
       uint32_t delta = readIntMidi(f);
       uint8_t type = readInt8(f);
       
-      Serial.print("d"); Serial.print(delta);
-      Serial.print(' ');
-      printBits(type, 8);
+      // Serial.print("d"); Serial.print(delta);
+      // Serial.print(' ');
+      // printBits(type, 8);
+      
       switch(type) {
         case 0xFF: // Meta event
           readMeta(f);
-        break;
+          break;
         case 0xF0: // System Exclusive event
         case 0xF7:
           readSysex(f);
-        break;
-        default:
-          readMidi(f, type);
-        break;
+          break;
+        case 0x80 ... 0xBf:	// MIDI message with 2 parameters
+	      case 0xe0 ... 0xef:
+          size = 3;
+          readMidi(f, type, size);
+          break;
+        case 0xc0 ... 0xdf:	// MIDI message with 1 parameter
+          size = 2;
+          readMidi(f, type, size);
+          break;
+        case 0x00 ... 0x7f:	// MIDI run on message
+          for (uint8_t i = 2; i < size; i++) {
+            readInt8(f);	// Read next byte and dispose
+          }	
+          break;
       }
     }
     f.seek(end);
   }
   
   void readMeta(File &f) {
-    Serial.println(" - Meta");
+    #ifdef MIDI_DEBUG
+      Serial.println(" - Meta");
+    #endif
     uint8_t metaType = readInt8(f);
     uint32_t length = readIntMidi(f);
     
-    if ( metaType == 0x51 ) { // Tempo event
-      Serial.println("Tempo event");
-    } 
+    switch ( metaType ) {
+      case 0x51: // Tempo event
+        Serial.println("Tempo event");
+      break;
+      case 0x03: // Text event
+        Serial.println("Text event");
+        char * text = (char*)malloc(length);
+        f.read(text, length);
+        Serial.print('\t')
+        Serial.println(text);
+      break;
+    }
     f.seek(f.position() + length);
   }
   
   void readSysex(File &f) {
-    Serial.println(" - Sysex");
+    #ifdef MIDI_DEBUG
+      Serial.println(" - Sysex");
+    #endif
     uint32_t length = readIntMidi(f);
     // Ignore sysex events, we're not dealing with it here.
     f.seek(f.position() + length);
   }
   
-  void readMidi(File &f, uint8_t type) {
-    Serial.print(" - Midi ");
+  void readMidi(File &f, uint8_t type, uint8_t size) {
+    #ifdef MIDI_DEBUG
+      Serial.print(" - Midi ");
+    #endif
     uint8_t first4 = type >> 4; 
-    uint8_t data1 = readInt8(f);
-    uint8_t data2 = readInt8(f);
+    uint8_t data1 = size > 1 ? readInt8(f) : 0;
+    uint8_t data2 = size > 2 ? readInt8(f) : 0;
     
-    Serial.println(first4);
+    #ifdef MIDI_DEBUG
+      Serial.println(first4);
+    #endif
     
     // There are lots of other event s, but this program will ignore it
     if ( first4 == 8 || first4 == 9 ) {
