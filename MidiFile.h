@@ -10,6 +10,8 @@
 #define MTHD 1297377380
 #define MTRK 1297379947
 
+// https://github.com/5shekel/midi.player/blob/master/libs/MD_MIDIFile/MD_MIDITrack.cpp
+
 // #define MIDI_DEBUG
 
 struct Note {
@@ -104,7 +106,7 @@ public:
 
     
     trackCount = 0;
-    // Loop through chunks (first pass)
+    // Loop through chunks (first pass) - Get the header data, count the tracks with music in it.
     // Gets the header information and counts the number of tracks with midi information
     while(midiFile.position() < midiFile.size()) {
       #ifdef MIDI_DEBUG
@@ -114,43 +116,41 @@ public:
       uint32_t header = readInt32(midiFile);
       switch( header ) {
         case MTHD: {
-          Serial.println(" - Header");
           readHeader(midiFile); // Scan chunk for tempo information
           break;
         }
         case MTRK: {
-          Serial.println(" - Track");
           uint32_t pos = midiFile.position();
-          if ( checkTrackForMidi(midiFile) ) { // Count chunks with actual music
-            Serial.println("Music track");
+          if ( countNotesInTrack(midiFile, true) ) { // Count chunks with actual music
             trackCount++;
           } else {
             midiFile.seek(pos);
-            readTrack(midiFile); // Get all the metadata out of the track
+            readMetaTrack(midiFile); // Get all the metadata out of the track
           }
           break;
         }
       }
     }
     
-    // Creating the block arrays
-    uint8_t blockIndex = 0;
-    trackBlocks = (BlockPointers*) malloc(sizeof(BlockPointers) * trackCount);
-    for ( uint8_t i = 0; i < trackCount; i++ ) {
-      trackBlocks[i].currentBlock = 0;
-      trackBlocks[i].maxBlocks = 0;
-      trackBlocks[i].position (uint16_t * ) malloc(sizeof(uint16*) * CHUNK_SIZE);
-      trackBlocks[i].time (uint16_t * ) malloc(sizeof(uint16*) * CHUNK_SIZE);
-    }
+    // This stores the notes per track.
+    uint16_t noteCounts[trackCount];
+    // This stores the locations of the tracks
+    uint32_t trackLocations[trackCount];
     midiFile.seek(0);
+    
     // Loop through chunks (second pass)
+    //    Count the number of notes in each track.
+    uint8_t noteCountIndex = 0;
     while(midiFile.position() < midiFile.size()) {
       uint32_t header = readInt32(midiFile);
       switch( header ) {
         case MTRK: {
           uint32_t pos = midiFile.position();
-          if ( checkTrackForMidi(midiFile) ) { // Count chunks with actual music
-            readTrack(midiFile); // Get all the metadata out of the track
+          uint32_t noteCount = countNotesInTrack(midiFile);
+          if ( noteCount > 0 ) {
+            noteCounts[noteCountIndex] = noteCount;
+            trackLocations[noteCountIndex] = pos;
+            noteCountIndex++;
           }
           break;
         }
@@ -159,12 +159,34 @@ public:
           break;
         }
       }
+      if ( noteCountIndex >= trackCount ) break;
     }
-      // Ignore chunks without music
+    
+    Serial.println("Note count / position:");
+    for ( uint8_t i = 0; i < trackCount; i++ ) {
+      Serial.print("   "); Serial.print(noteCounts[i]); Serial.print('\t'); Serial.println(trackLocations[i]); Serial.println();
+    }
+    
+    // Creating the block arrays
+    uint8_t blockIndex = 0;
+    trackBlocks = (BlockPointers*) malloc(sizeof(BlockPointers) * trackCount);
+    for ( uint8_t i = 0; i < trackCount; i++ ) {
+      trackBlocks[i].currentBlock = 0;
+      trackBlocks[i].maxBlocks = (noteCounts[i] / CHUNK_SIZE) + 1;
+      trackBlocks[i].position = (uint16_t*) malloc(sizeof(uint16_t*) * trackBlocks[i].maxBlocks);
+      trackBlocks[i].time = (uint16_t*) malloc(sizeof(uint16_t*) * trackBlocks[i].maxBlocks);
+    }
+    midiFile.seek(0);
+    
+    // Loop through chunks with music (third pass)
+    for ( uint8_t i = 0; i < trackCount; i++ ) {
+      midiFile.seek(trackLocations[trackCount]);
+      readTrack(midiFile);
+    }
 
-      // Only record key down 0x09 and key up 0x08 events
+    // Only record key down 0x09 and key up 0x08 events
 
-      // Every CHUNK_SIZE notes, record the pointer and the start time
+    // Every CHUNK_SIZE notes, record the pointer and the start time
 
     // pointers
   }
@@ -188,82 +210,91 @@ public:
   }
   
   /**
-   * Checks if a track has midi data
+   * Counts the number of notes in a midi track.
+   * If the second param is set to true, it will break once a
+   * note is detected, returning 1.
    */
-  bool checkTrackForMidi(File &f) {
+  uint32_t countNotesInTrack(File &f, bool breakOnFirst = false) {
     uint32_t length = readInt32(f);
     uint32_t end = f.position() + length;
-    uint8_t size = 0; // Size used for midi run on messages// Do track reading stuff here
-    bool hasMidi = false;
+    uint8_t size = 0; // Size used for midi run on messages
+    uint32_t noteCount = 0;
     while(f.position() < end) {
       uint32_t delta = readIntMidi(f);
       uint8_t type = readInt8(f);
       switch(type) {
-        case 0xFF: {// Meta event
-          uint8_t metaType = readInt8(f);
-          uint32_t length = readIntMidi(f);
-          f.seek(f.position() + length);
-          break;
-        }
+        case 0xFF: // Meta event
+          readInt8(f); f.seek(f.position() + readIntMidi(f));  break; // Read a meta type then skip by the length
         case 0xF0: // System Exclusive event
-        case 0xF7: {
-          uint32_t length = readIntMidi(f);
-          // Ignore sysex events, we're not dealing with it here.
-          f.seek(f.position() + length);
-          break;
-        }
-        case 0xc0 ... 0xdf:	{ // MIDI message with 1 parameter
-          size = 2;
-          readInt8(f);
-          break;
-        }
-        
-        case 0x80 ... 0xBf:	// MIDI message with 2 parameters
-	      case 0xe0 ... 0xef: {
+        case 0xF7: 
+          f.seek(f.position() + readIntMidi(f)); break; // Ignore sysex events, we're not dealing with it here.
+        case 0xc0 ... 0xdf: // MIDI message with 1 parameter
+          size = 2; readInt8(f); break;
+        case 0x00 ... 0x7f: // MIDI run on message
+          for (uint8_t i = 2; i < size; i++) readInt8(f); break;// Read next byte and dispose
+        case 0x80 ... 0xBf: // MIDI message with 2 parameters
+        case 0xe0 ... 0xef:
           size = 3;
           readInt8(f); readInt8(f);
-          if ( type >> 4 == 8 || type >> 4 == 9 ) {
-            hasMidi = true;
-          }
+          if ( type >> 4 == 9 ) noteCount++; // This is a key press event. We only need to count keypresses.
           break;
-        }  
-        case 0x00 ... 0x7f:	{ // MIDI run on message
-          for (uint8_t i = 2; i < size; i++) {
-            readInt8(f);	// Read next byte and dispose
-          }	
-          break;
-        }
       }
-      if ( hasMidi ) break;
+      if ( breakOnFirst && noteCount > 0 ) break; // Once we find a single note, we can break out of the loop
     }
-    return hasMidi;
+    f.seek(end);
+    return noteCount;
   }
   
-  void readTrack(File &f) {
-    // https://github.com/5shekel/midi.player/blob/master/libs/MD_MIDIFile/MD_MIDITrack.cpp
+  
+  /**
+   * Reads the metadata from a meta track
+   */
+  void readMetaTrack(File &f) {
     uint32_t length = readInt32(f);
     uint32_t end = f.position() + length;
     uint8_t size = 0; // Size used for midi run on messages
-    #ifdef MIDI_DEBUG
-      Serial.print("Chunk len: "); Serial.println(length);
-    #endif
+    
     // Do track reading stuff here
     while(f.position() < end) {
       uint32_t delta = readIntMidi(f);
       uint8_t type = readInt8(f);
-      
-      // Serial.print("d"); Serial.print(delta);
-      // Serial.print(' ');
-      // printBits(type, 8);
-      
       switch(type) {
         case 0xFF: // Meta event
-          readMeta(f);
+          readMeta(f); break;
+        case 0xF0: // System Exclusive event
+        case 0xF7: 
+          f.seek(f.position() + readIntMidi(f)); break; // Ignore sysex events, we're not dealing with it here.
+        case 0xc0 ... 0xdf: // MIDI message with 1 parameter
+          size = 2; readInt8(f); break;
+        case 0x00 ... 0x7f: // MIDI run on message
+          for (uint8_t i = 2; i < size; i++) readInt8(f); break;// Read next byte and dispose
+        case 0x80 ... 0xBf: // MIDI message with 2 parameters
+        case 0xe0 ... 0xef:
+          size = 3; readInt8(f); readInt8(f);
           break;
+      }
+    }
+    f.seek(end);
+  }
+  
+  /**
+   * Reads the track data from a meta track
+   */
+  void readTrack(File &f) {
+    uint32_t length = readInt32(f);
+    uint32_t end = f.position() + length;
+    uint8_t size = 0; // Size used for midi run on messages
+    
+    // Do track reading stuff here
+    while(f.position() < end) {
+      uint32_t delta = readIntMidi(f);
+      uint8_t type = readInt8(f);
+      switch(type) {
+        case 0xFF: // Meta event
+          readMeta(f); break;
         case 0xF0: // System Exclusive event
         case 0xF7:
-          readSysex(f);
-          break;
+          skipSysex(f); break;
         case 0x80 ... 0xBf:	// MIDI message with 2 parameters
 	      case 0xe0 ... 0xef:
           size = 3;
@@ -274,10 +305,8 @@ public:
           readMidi(f, type, size);
           break;
         case 0x00 ... 0x7f:	// MIDI run on message
-          for (uint8_t i = 2; i < size; i++) {
-            readInt8(f);	// Read next byte and dispose
-          }	
-          break;
+          for (uint8_t i = 2; i < size; i++) readInt8(f); break;// Read next byte and dispose
+          
       }
     }
     f.seek(end);
@@ -305,13 +334,9 @@ public:
     f.seek(f.position() + length);
   }
   
-  void readSysex(File &f) {
-    #ifdef MIDI_DEBUG
-      Serial.println(" - Sysex");
-    #endif
-    uint32_t length = readIntMidi(f);
+  void skipSysex(File &f) {
     // Ignore sysex events, we're not dealing with it here.
-    f.seek(f.position() + length);
+    f.seek(f.position() + readIntMidi(f));
   }
   
   void readMidi(File &f, uint8_t type, uint8_t size) {
