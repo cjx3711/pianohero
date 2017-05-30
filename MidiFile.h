@@ -3,7 +3,7 @@
 
 #include <SD.h>
 
-#define BLOCK_SIZE 5
+#define BLOCK_SIZE 6
 
 // The number representations of the ascii code for
 // 'MThd' and 'MTrk'
@@ -221,7 +221,6 @@ public:
     Serial.print(f.position());
     uint32_t length = readInt32(f);
     uint32_t end = f.position() + length;
-    Serial.print(" end: "); Serial.println(end);
     uint8_t size = 0; // Size used for midi run on messages
     uint32_t noteCount = 0;
     while(f.position() < end) {
@@ -306,7 +305,6 @@ public:
           skipSysex(f); break;
         case 0x80 ... 0xBf:	// MIDI message with 2 parameters
 	      case 0xe0 ... 0xef: {
-          Serial.print(pos); Serial.print(' '); Serial.println(end);
           size = 3;
           uint8_t key = readInt8(f) - 9; readInt8(f);
           uint8_t midiType = type >> 4;
@@ -317,14 +315,13 @@ public:
               trackBlocks[blockNumber].position[trackBlocks[blockNumber].currentBlock] = pos;
               trackBlocks[blockNumber].time[trackBlocks[blockNumber].currentBlock] = currentTime;
               trackBlocks[blockNumber].currentBlock++;
-              Serial.println("Save block");
             }
             currentCount++;
-            Serial.print("Current Count: ");
-            Serial.println(currentCount);
             if ( currentCount >= BLOCK_SIZE ) {
               currentCount = 0;
             }
+          } else if ( midiType == 8 ) {
+            currentTime += delta;
           }
           break;
         }
@@ -334,7 +331,6 @@ public:
           for (uint8_t i = 2; i < size; i++) readInt8(f); break;// Read next byte and dispose
       }
     }
-    Serial.print("End");
     currentCount = 0;
     trackBlocks[blockNumber].currentBlock = 0;
     f.seek(end);
