@@ -346,7 +346,17 @@ public:
     switch ( metaType ) {
       case 0x51: // Tempo event
         Serial.println("Tempo event");
+        uint32_t tempo = readInt24(f);
       break;
+      
+      case 0x51: // Tempo event
+        Serial.println("Time Signature");
+        uint32_t timeSNum = readInt8(f);
+        uint32_t timeSDen = readInt8(f);
+        uint32_t clocksPerTick = readInt8(f);
+        uint32_t notesPer24Clocks = readInt8(f);
+      break;
+      
       case 0x03: // Text event
         Serial.println("Text event");
         char * text = (char*)malloc(length);
@@ -395,6 +405,8 @@ public:
   //   // }
   // }
 private:
+  
+  
   void printBits(uint8_t b, uint8_t n) {
     for ( int i = 0; i < n; i++ ) {
       Serial.print(bitRead(b, 7-i));
@@ -402,7 +414,8 @@ private:
     Serial.println("b");
   }
   
-  uint32_t readInt32(File &f) {
+  // ============== Functions to read data from the file ==========
+  uint32_t readInt32(File &f) { // Reads an int32 
     uint32_u ret;
     byte buffer[4];
     f.read(buffer,4);
@@ -410,6 +423,16 @@ private:
     ret.bytes[1] = buffer[2];
     ret.bytes[2] = buffer[1];
     ret.bytes[3] = buffer[0];
+    return ret.data;
+  }
+  uint32_t readInt24(File &f) { // Reads 3 bytes into an int32 
+    uint32_u ret;
+    byte buffer[3];
+    f.read(buffer,3);
+    ret.bytes[0] = buffer[2];
+    ret.bytes[1] = buffer[1];
+    ret.bytes[2] = buffer[0];
+    ret.bytes[3] = 0;
     return ret.data;
   }
   uint16_t readInt16(File &f) {
@@ -423,6 +446,7 @@ private:
   uint8_t readInt8(File &f) {
     return f.read();
   }
+  
   uint32_t readIntMidi(File &f) {
     // Do integer wrangling here and progress the file
     byte buffer[4];
