@@ -101,7 +101,7 @@ void loop() {
       } else {
         dir = 0;
         pos += 0.03;
-        Serial.println(pos);
+        updatePos();
       }
     }
   }
@@ -114,13 +114,12 @@ void loop() {
       } else {
         dir = 0;
         pos -= 0.03;
-        Serial.println(pos);
+        updatePos();
       }
     }
   }
 
-  if ( pos < 0 ) pos = 0;
-  if ( pos > 1 ) pos = 1;
+
 
   for ( int i = 0 ; i < KEYS * PIXELS_PER_KEY; i++ ) {
      strip.setPixelColor(i, 0, 0, 0);
@@ -134,7 +133,7 @@ void loop() {
   // int maxBrightness = 30;
   // int led1 = maxBrightness * (1-fractionalPart);
   // int led2 = maxBrightness * (fractionalPart);
-
+  // 
   setScreenState(pos);
   // for ( int i = 0 ; i < KEYS; i++ ) {
   //   setKBPixel(i,led,led1,led1,led1);
@@ -145,6 +144,12 @@ void loop() {
   //    setKBPixel(i,led,maxBrightness,maxBrightness,maxBrightness);
   //  }
   strip.show();
+}
+
+void updatePos() {
+  if ( pos < 0 ) pos = 0;
+  if ( pos > 1 ) pos = 1;
+  midi.setPosition(pos);
 }
 
 void printDirectory(File dir, int numTabs) {

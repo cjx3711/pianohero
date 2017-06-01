@@ -54,7 +54,9 @@ struct BlockPointers {
 class MidiFile {
 public:
   // Metadata
-  int microseconds; // Microseconds per quarter note
+  // int microseconds; // Microseconds per quarter note
+  uint32_t trackPosition = 0;
+  uint32_t trackLength;
   uint16_t format, tracks, division;
   BlockPointers * trackBlocks;
   uint8_t trackCount;
@@ -62,6 +64,13 @@ public:
   Note notes[10];
   // Note tempNotes[2 * BLOCK_SIZE];
   File midiFile;
+  
+  // The notes will be stored in two buffers.
+  // When we reach the end of the first buffer, we will
+  // fill the second buffer with the following notes.
+  // When we reach the start of the first buffer, we will
+  // make it the second buffer and fill the first buffer with the initial notes.
+  bool bufferIndex = false;
   void init() {
     // Temp song
     notes[0].key = 4;
@@ -91,10 +100,46 @@ public:
     #endif
   }
   
-  Note getNote(int i) {
-    // TODO: Do some hot swapping stuff
-    return notes[i];
+
+  /**************************************
+   *   FILE ACCESSING FUNCTIONS
+   **************************************/
+   Note getNote(int i) {
+     // TODO: Do some hot swapping stuff
+     return notes[i];
+   }
+   
+  void setPosition(float perc) {
+    trackPosition = perc * trackLength;
+    
+    Serial.print("Pos: "); Serial.print(trackPosition); Serial.print('/'); Serial.println(trackLength);
+    
+    Serial.println("Track 1: ");
+    Serial.print(getBlock(0) + 1); Serial.print('/'); Serial.println(trackBlocks[0].maxBlocks);
+
+    Serial.println("Track 2: ");
+    Serial.print(getBlock(1) + 1); Serial.print('/'); Serial.println(trackBlocks[1].maxBlocks);
   }
+  
+  uint16_t getBlock(bool which) {
+    BlockPointers block = trackBlocks[which];
+    uint16_t whichBlock = 0;
+    for ( uint16_t i = 0; i < block.maxBlocks; i++ ) {
+      Serial.print(trackPosition); Serial.print('/'); Serial.println(block.time[i]);
+      if ( trackPosition < block.time[i] ) {
+        // Previous block
+        whichBlock = i - 1;
+      }
+    }
+    return whichBlock;
+  }
+  /**************************************
+   *   FILE OPENING FUNCTIONS
+   **************************************/
+  /**
+   * Opens the midi file and loads the important information
+   * as well as the block information
+   */
   void openFile(char * filename) {
     Serial.println("-------");
     if ( !SD.exists(filename) ) {
@@ -104,9 +149,7 @@ public:
     midiFile = SD.open(filename);
     Serial.println("Opened midi");
     
-    // Opens the mififile and reads all the important information about it.
-
-    
+    trackLength = 0;
     trackCount = 0;
     // Loop through chunks (first pass) - Get the header data, count the tracks with music in it.
     // Gets the header information and counts the number of tracks with midi information
@@ -192,6 +235,10 @@ public:
         Serial.println(trackBlocks[i].time[j]);
       }
     }
+    
+    Serial.println("Track opened");
+    Serial.print("Tracks: "); Serial.println(trackCount);
+    Serial.print("Length: "); Serial.println(trackLength);
   }
   
   void readHeader(File &f) {
@@ -323,6 +370,9 @@ public:
           } else if ( midiType == 8 ) {
             currentTime += delta;
           }
+          if ( midiType == 8 || midiType == 9 ) {
+            if ( trackLength < currentTime ) trackLength = currentTime;
+          }
           break;
         }
         case 0xc0 ... 0xdf:	// MIDI message with 1 parameter
@@ -344,23 +394,26 @@ public:
     uint32_t length = readIntMidi(f);
     
     switch ( metaType ) {
-      case 0x51: // Tempo event
+      case 0x51: { // Tempo event
         Serial.println("Tempo event");
         uint32_t tempo = readInt24(f);
-      break;
+        break;
+      }
       
-      case 0x51: // Tempo event
+      case 0x58: { // Time Signature event
         Serial.println("Time Signature");
         uint32_t timeSNum = readInt8(f);
         uint32_t timeSDen = readInt8(f);
         uint32_t clocksPerTick = readInt8(f);
         uint32_t notesPer24Clocks = readInt8(f);
-      break;
+        break;
+      }
       
       case 0x03: // Text event
         Serial.println("Text event");
-        char * text = (char*)malloc(length);
+        char * text = (char*)malloc(length+1);
         f.read(text, length);
+        text[length] = 0;
         Serial.print('\t');
         Serial.println(text);
       break;
