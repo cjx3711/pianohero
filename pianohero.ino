@@ -27,7 +27,9 @@ float pos = 0;
 float vel = 0;
 
 bool lastRotState;  
-bool lastBtnState;  
+bool lastBtnState;
+
+uint8_t maxBrightness = 16;
 MidiFile midi;
 void setup() {
   Serial.begin(9600);
@@ -47,7 +49,7 @@ void setup() {
   }
   strip.show();
   
-  delay(1000);
+  delay(500);
 
   // Serial.println("Sizes (Bytes):");
   // Serial.print("uint8_t:"); Serial.println(sizeof(uint8_t));
@@ -85,7 +87,28 @@ void setup() {
   lastBtnState = digitalRead(ROTARY_B);
 }
 
-
+void changeBrightness() {
+  switch ( maxBrightness ) {
+    case 8:
+      maxBrightness = 16;
+    break;
+    case 16:
+      maxBrightness = 32;
+    break;
+    case 32:
+      maxBrightness = 64;
+    break;
+    case 64:
+      maxBrightness = 128;
+    break;
+    case 128:
+      maxBrightness = 255;
+    break;
+    case 255:
+      maxBrightness = 8;
+    break;
+  }
+}
 
 void loop() {
   {
@@ -99,15 +122,16 @@ void loop() {
       if (c2 != c1) { 
          // Serial.println("Up");
          pos -= 0.03;
-        //  updatePos();
+         updatePos();
        } else {
          // Serial.println("Down");
          pos += 0.03;
-        //  updatePos();
+         updatePos();
        }
     }
     if ( b != lastBtnState && !b ) {
-      Serial.println("Btn");
+      // Serial.println("Btn");
+      changeBrightness();
     }
     
     lastRotState = c1;
@@ -208,15 +232,15 @@ void setScreenState(float pos) {
       int pos = currentNote - midi.getNote(i).pos + SCREEN_HEIGHT;
 
       if ( i % 2 ) {
-        setKBPixelInv(midi.getNote(i).key, pos, 0, 16, 14);
+        setKBPixelInv(midi.getNote(i).key, pos, 0, maxBrightness, 0.875 * maxBrightness);
       } else {
-        setKBPixelInv(midi.getNote(i).key, pos, 4, 8, 16);
+        setKBPixelInv(midi.getNote(i).key, pos, 0.25 * maxBrightness, 0.5 * maxBrightness, maxBrightness);
       }
       for ( int l = 1; l < midi.getNote(i).len; l++) {
         if ( i % 2 ) {
-          setKBPixelInv(midi.getNote(i).key, pos - l, 0, 7, 4);
+          setKBPixelInv(midi.getNote(i).key, pos - l, 0, 0.4375 * maxBrightness, 0.25 * maxBrightness);
         } else {
-          setKBPixelInv(midi.getNote(i).key, pos - l, 1, 2, 6);
+          setKBPixelInv(midi.getNote(i).key, pos - l, 0.0625 * maxBrightness, 0.125 * maxBrightness, 0.375 * maxBrightness);
         }
 
       }
