@@ -5,11 +5,11 @@
 #define KEYS 6
 #define PIXELS_PER_KEY 10
 #define PIXELS KEYS * PIXELS_PER_KEY
-#define STRIP_PIN 4
+#define STRIP_PIN 24
 
-#define CONTROL_1 25
-#define CONTROL_2 26
-
+#define ROTARY_1 15
+#define ROTARY_2 16
+#define ROTARY_B 17
 // Notes that can be displayed on screen
 // Todo: This will eventually use the note length
 #define SCREEN_HEIGHT 10
@@ -26,6 +26,8 @@ long lastMillis = 0;
 float pos = 0;
 float vel = 0;
 
+bool lastRotState;  
+bool lastBtnState;  
 MidiFile midi;
 void setup() {
   Serial.begin(9600);
@@ -34,6 +36,11 @@ void setup() {
   pinMode(6, OUTPUT);
   digitalWrite(6, HIGH);
   
+  pinMode (ROTARY_1,INPUT);
+  pinMode (ROTARY_2,INPUT);
+  pinMode (ROTARY_B,INPUT);
+  digitalWrite(ROTARY_B, HIGH);
+  
   strip.begin();
   for ( int i = 0; i < PIXELS; i++ ) {
     strip.setPixelColor(i, 15, 5, 5);
@@ -41,10 +48,7 @@ void setup() {
   strip.show();
   
   delay(1000);
-  
-  pinMode(CONTROL_1, INPUT);
-  pinMode(CONTROL_2, INPUT);
-  
+
   // Serial.println("Sizes (Bytes):");
   // Serial.print("uint8_t:"); Serial.println(sizeof(uint8_t));
   // Serial.print("uint16_t:"); Serial.println(sizeof(uint16_t));
@@ -60,13 +64,15 @@ void setup() {
   
   if ( SD.begin() ) {
     Serial.println("SD connected");
+    
+    File root = SD.open("/");
+    printDirectory(root, 0);
+    
+    midi.openFile("test-two.mid");
   } else {
     Serial.println("SD fail");
   }
-  File root = SD.open("/");
-  printDirectory(root, 0);
   
-  midi.openFile("test-two.mid");
   
   for ( int i = 0; i < PIXELS; i++ ) {
     strip.setPixelColor(i, 0, 0, 0);
@@ -74,52 +80,42 @@ void setup() {
   strip.show();
   
   digitalWrite(6, LOW);
+  
+  lastRotState = digitalRead(ROTARY_1);
+  lastBtnState = digitalRead(ROTARY_B);
 }
 
-void loop() {
 
-  uint8_t c1 = digitalRead(CONTROL_1);
-  uint8_t c2 = digitalRead(CONTROL_2);
+
+void loop() {
+  {
+    bool b = digitalRead(ROTARY_B);
+    bool c1 = digitalRead(ROTARY_1);
+    bool c2 = digitalRead(ROTARY_2);
+    // Serial.print(c1);
+    // Serial.print('\t');
+    // Serial.println(c2);
+    if (c1 != lastRotState && !c1) {
+      if (c2 != c1) { 
+         // Serial.println("Up");
+         pos -= 0.03;
+        //  updatePos();
+       } else {
+         // Serial.println("Down");
+         pos += 0.03;
+        //  updatePos();
+       }
+    }
+    if ( b != lastBtnState && !b ) {
+      Serial.println("Btn");
+    }
+    
+    lastRotState = c1;
+    lastBtnState = b;
+  }
 
   long curMillis = millis();
   float delta = (float)(curMillis - lastMillis) / 1000.0f;
-  if ( vel > 0.02f ) vel = 0.02f;
-  if ( vel < -0.02f ) vel = -0.02f;
-//  vel *= 1.0f / (1.0f + (delta * 0.1f));
-  pos += vel * delta;
-
-  // Hack to get the stupid thing working.
-  if ( curMillis - lastMillis > 100 ) {
-    dir = 0;
-  }
-  if ( c1 != pc1 ) {
-    pc1 = c1;
-    if ( c1 == 1 ) {
-      if ( dir == 0 ) {
-        dir = -1;
-        lastMillis = millis();
-      } else {
-        dir = 0;
-        pos += 0.03;
-        updatePos();
-      }
-    }
-  }
-  if ( c2 != pc2 ) {
-    pc2 = c2;
-    if ( c2 == 1 ) {
-      if ( dir == 0 ) {
-        dir = 1;
-        lastMillis = millis();
-      } else {
-        dir = 0;
-        pos -= 0.03;
-        updatePos();
-      }
-    }
-  }
-
-
 
   for ( int i = 0 ; i < KEYS * PIXELS_PER_KEY; i++ ) {
      strip.setPixelColor(i, 0, 0, 0);
