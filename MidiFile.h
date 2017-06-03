@@ -4,6 +4,9 @@
 #include <SD.h>
 
 #define BLOCK_SIZE 6
+#define MAX_BLOCKS 200
+
+// min (8 * 4 * x) + (8 * (10000/x))
 
 // The number representations of the ascii code for
 // 'MThd' and 'MTrk'
@@ -52,8 +55,7 @@ struct BlockPointers {
   uint16_t maxBlocks;
   // All the block pointers for a given midi channel;
   // Stores an array
-  uint32_t * position; // Array of positions
-  uint32_t * time; // Array of times
+  FilePos filePos[MAX_BLOCKS];
 };
 
 class MidiFile {
@@ -63,7 +65,7 @@ public:
   uint32_t trackPosition = 0;
   uint32_t trackLength;
   uint16_t format, tracks, division;
-  BlockPointers * trackBlocks;
+  BlockPointers trackBlocks[2];
   uint8_t trackCount;
 
   Note notes[10];
@@ -129,10 +131,12 @@ public:
   uint16_t getBlock(bool which) {
     uint16_t whichBlock = 0;
     for ( uint16_t i = 0; i < trackBlocks[which].maxBlocks; i++ ) {
-      Serial.print(trackPosition); Serial.print('/'); Serial.println(trackBlocks[which].time[i]);
-      if ( trackPosition < trackBlocks[which].time[i] ) {
+      uint16_t I = trackBlocks[which].maxBlocks - i - 1;
+      // Serial.print(trackPosition); Serial.print('/'); Serial.println(trackBlocks[which].filePos[I].time);
+      if ( trackPosition > trackBlocks[which].filePos[I].time ) {
         // Previous block
-        whichBlock = i - 1;
+        whichBlock = I;
+        break;
       }
     }
     return whichBlock;
@@ -181,6 +185,11 @@ public:
       }
     }
     
+    if ( trackCount > 2 ) {
+      trackCount = 2;
+      Serial.println("Too many tracks");
+    }
+    
     
     uint16_t noteCounts[trackCount]; // This stores the notes per track.
     uint32_t trackLocations[trackCount]; // This stores the locations of the tracks
@@ -217,23 +226,15 @@ public:
     
     // Creating the block arrays
     uint8_t blockIndex = 0;
-    trackBlocks = (BlockPointers*) malloc(sizeof(BlockPointers) * trackCount);
     for ( uint8_t i = 0; i < trackCount; i++ ) {
       trackBlocks[i].currentBlock = 0;
       trackBlocks[i].maxBlocks = (noteCounts[i] / BLOCK_SIZE) + (noteCounts[i] % BLOCK_SIZE ? 1 : 0);
       Serial.print("Max: "); Serial.println(trackBlocks[i].maxBlocks);
       
       // Create the position and time array
-      trackBlocks[i].position = (uint32_t*) malloc(sizeof(uint32_t*) * trackBlocks[i].maxBlocks);
-      trackBlocks[i].time = (uint32_t*) malloc(sizeof(uint32_t*) * trackBlocks[i].maxBlocks);
-      Serial.print("Track "); Serial.println(i);
-      for ( uint16_t j = 0; j < trackBlocks[i].maxBlocks; j++ ) {
-        trackBlocks[i].position[j] = 0;
-        trackBlocks[i].time[j] = 0;
-        Serial.print("  File: ");
-        Serial.print(trackBlocks[i].position[j]);
-        Serial.print(" Time: ");
-        Serial.println(trackBlocks[i].time[j]);
+      for ( uint16_t j = 0; j < MAX_BLOCKS; j++ ) {
+        trackBlocks[i].filePos[j].position = 0;
+        trackBlocks[i].filePos[j].time = 0;
       }
     }
     midiFile.seek(0);
@@ -248,9 +249,9 @@ public:
       
       for ( uint16_t j = 0; j < trackBlocks[i].maxBlocks; j++ ) {
         Serial.print("  File: ");
-        Serial.print(trackBlocks[i].position[j]);
+        Serial.print(trackBlocks[i].filePos[j].position);
         Serial.print(" Time: ");
-        Serial.println(trackBlocks[i].time[j]);
+        Serial.println(trackBlocks[i].filePos[j].time);
       }
       Serial.println();
     }
@@ -384,10 +385,10 @@ public:
               Serial.print("Block: "); Serial.print(i);
               // Add position and time to the block
 
-              trackBlocks[blockNumber].position[i] = pos;
-              trackBlocks[blockNumber].time[i] = currentTime;
+              trackBlocks[blockNumber].filePos[i].position = pos;
+              trackBlocks[blockNumber].filePos[i].time = currentTime;
               trackBlocks[blockNumber].currentBlock++;
-              Serial.print(" Pos: "); Serial.print(trackBlocks[blockNumber].position[i]);  Serial.print(" Time: "); Serial.println(  trackBlocks[blockNumber].time[i] );
+              Serial.print(" Pos: "); Serial.print(trackBlocks[blockNumber].filePos[i].position);  Serial.print(" Time: "); Serial.println(  trackBlocks[blockNumber].filePos[i].time );
               
             }
             currentCount++;
