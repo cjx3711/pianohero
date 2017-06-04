@@ -226,13 +226,12 @@ public:
     }
     
     // Creating the block arrays
-    uint8_t blockIndex = 0;
     for ( uint8_t i = 0; i < trackCount; i++ ) {
       trackBlocks[i].currentBlock = 0;
       trackBlocks[i].maxBlocks = (noteCounts[i] / BLOCK_SIZE) + (noteCounts[i] % BLOCK_SIZE ? 1 : 0);
       Serial.print("Max: "); Serial.println(trackBlocks[i].maxBlocks);
       
-      // Create the position and time array
+      // Initalise the arrays
       for ( uint16_t j = 0; j < MAX_BLOCKS; j++ ) {
         trackBlocks[i].filePos[j].position = 0;
         trackBlocks[i].filePos[j].time = 0;
@@ -293,7 +292,7 @@ public:
     uint8_t size = 0; // Size used for midi run on messages
     uint32_t noteCount = 0;
     while(f.position() < end) {
-      uint32_t delta = readIntMidi(f);
+      readIntMidi(f); // uint32_t delta = 
       uint8_t type = readInt8(f);
       switch(type) {
         case 0xFF: // Meta event
@@ -328,7 +327,7 @@ public:
     
     // Do track reading stuff here
     while(f.position() < end) {
-      uint32_t delta = readIntMidi(f);
+      readIntMidi(f); // uint32_t delta =
       uint8_t type = readInt8(f);
       switch(type) {
         case 0xFF: // Meta event
@@ -376,7 +375,7 @@ public:
         case 0x80 ... 0xBf:	// MIDI message with 2 parameters
 	      case 0xe0 ... 0xef: {
           size = 3;
-          uint8_t key = readInt8(f) - 9; readInt8(f);
+          /* uint8_t key = */ readInt8(f) /*- 9*/; readInt8(f);
           uint8_t midiType = type >> 4;
           if ( midiType == 9 ) { // When it detects a keydown, increment the count
             currentTime += delta;
@@ -434,16 +433,16 @@ public:
     switch ( metaType ) {
       case 0x51: { // Tempo event
         Serial.println("Tempo event");
-        uint32_t tempo = readInt24(f);
+        readInt24(f); // uint32_t tempo = 
         break;
       }
       
       case 0x58: { // Time Signature event
         Serial.println("Time Signature");
-        uint32_t timeSNum = readInt8(f);
-        uint32_t timeSDen = readInt8(f);
-        uint32_t clocksPerTick = readInt8(f);
-        uint32_t notesPer24Clocks = readInt8(f);
+        readInt8(f); // uint32_t timeSNum = 
+        readInt8(f); // uint32_t timeSDen = 
+        readInt8(f); // uint32_t clocksPerTick = 
+        readInt8(f); // uint32_t notesPer24Clocks = 
         break;
       }
       

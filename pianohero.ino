@@ -72,7 +72,7 @@ void setup() {
     File root = SD.open("/");
     printDirectory(root, 0);
     
-    midi.openFile("test-two.mid");
+    midi.openFile((char*)"test-two.mid");
   } else {
     Serial.println("SD fail");
   }
@@ -140,8 +140,8 @@ void loop() {
     lastBtnState = b;
   }
 
-  long curMillis = millis();
-  float delta = (float)(curMillis - lastMillis) / 1000.0f;
+  // long curMillis = millis();
+  // float delta = (float)(curMillis - lastMillis) / 1000.0f;
 
   for ( int i = 0 ; i < KEYS * PIXELS_PER_KEY; i++ ) {
      strip.setPixelColor(i, 0, 0, 0);
