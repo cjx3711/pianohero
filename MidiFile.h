@@ -3,7 +3,7 @@
 
 #include <SD.h>
 
-#define BLOCK_SIZE 3
+#define BLOCK_SIZE 5
 #define MAX_BLOCKS 200
 
 // min (8 * 4 * x) + (8 * (10000/x))
@@ -67,6 +67,9 @@ struct Track {
 
 class MidiFile {
 public:
+  // Used for key counting
+  uint16_t noteSequence[88]; // Stores the sequence number of each note
+  uint32_t noteTimes[88]; // So we know which key has been pressed
   // Metadata
   // int microseconds; // Microseconds per quarter note
   uint32_t trackPosition = 0;
@@ -153,22 +156,16 @@ public:
   
   void setLoadedBlocks(bool which, uint16_t block) {
     // Do actual block loading logic here
-    if ( trackBuffers[which].currentlyLoaded < block ) {
-      // Moving up
-      if ( block - trackBuffers[which].currentlyLoaded == 1 ) {
-        Serial.println("Moving up 1");
-        // Moving up one
+    if ( trackBuffers[which].currentlyLoaded < block ) { // Moving up
+      if ( block - trackBuffers[which].currentlyLoaded == 1 ) { // Moving up one
         // Copy second half into first half
         memcpy(&trackBuffers[which].notes[0], &trackBuffers[which].notes[BLOCK_SIZE], sizeof(Note) * BLOCK_SIZE);
         
         // Load stuff for second half
         loadBlock(which, block + 1, &trackBuffers[which].notes[BLOCK_SIZE]);
       }
-    } else if ( trackBuffers[which].currentlyLoaded > block ) {
-      // Moving down
-      if ( trackBuffers[which].currentlyLoaded - block == 1 ) {
-        Serial.println("Moving down 1");
-        // Moving down one
+    } else if ( trackBuffers[which].currentlyLoaded > block ) { // Moving down
+      if ( trackBuffers[which].currentlyLoaded - block == 1 ) { // Moving down one
         // Copy first half into second half
         memcpy(&trackBuffers[which].notes[BLOCK_SIZE], &trackBuffers[which].notes[0], sizeof(Note) * BLOCK_SIZE);
         
@@ -190,8 +187,6 @@ public:
   }
   
   void loadBlock(bool which, uint16_t block, Note * dest) {
-    uint16_t noteSequence[88]; // Stores the sequence number of each note
-    uint32_t noteTimes[88]; // So we know which key has been pressed
     uint16_t noteCount = 0;
     uint8_t size = 0; // Used for run on messages
     for ( uint8_t i = 0; i < 88; i++ ) noteTimes[i] = MAX32;
@@ -201,6 +196,7 @@ public:
     uint32_t currentTime = trackBlocks[which].filePos[block].time;
     
     while((noteCount < BLOCK_SIZE || !allKeysReleased(&noteTimes[0])) && midiFile.position() < trackBlocks[which].maxFilePos) {
+      uint32_t pos = midiFile.position();
       uint32_t delta = readIntMidi(midiFile); //
       uint8_t type = readInt8(midiFile);
       switch(type) {
@@ -222,13 +218,24 @@ public:
             currentTime += !noteCount ? 0 : delta; // Ignore the delta for the first note
             noteTimes[key] = currentTime;
             noteSequence[key] = noteCount;
+            Serial.print("Down Pos: "); Serial.print(pos);
+            Serial.print(" Sequence: "); Serial.print(noteSequence[key]);
+            Serial.print(" Key: "); Serial.print(key); 
+            Serial.print(" Time: "); Serial.println(currentTime);
             noteCount++; // This is a key press event. We only need to count keypresses.
           } else if ( midiType == 8 ) {
             currentTime += delta;
+            Serial.print("Up   Pos: "); Serial.print(pos);
+            Serial.print(" Sequence: "); Serial.print(noteSequence[key]);
+            Serial.print(" Key: "); Serial.print(key);
+            Serial.print(" Time: "); Serial.println(currentTime);
+
             // Add the note to the buffer
-            dest[noteSequence[key]].pos = noteTimes[key];
-            dest[noteSequence[key]].len = (uint16_t)(currentTime - noteTimes[key]);
-            noteTimes[key] = MAX32;
+            if ( noteTimes[key] != MAX32 ) {
+              dest[noteSequence[key]].pos = noteTimes[key];
+              dest[noteSequence[key]].len = (uint16_t)(currentTime - noteTimes[key]);
+              noteTimes[key] = MAX32;
+            }
           }
           break;
       }
@@ -415,6 +422,10 @@ public:
     Serial.println("Track opened");
     Serial.print("Tracks: "); Serial.println(trackCount);
     Serial.print("Length: "); Serial.println(trackLength);
+    
+    for ( uint8_t i = 0; i < trackCount; i++ ) {
+      printBuffers(i);
+    }
   }
   
   void readHeader(File &f) {
