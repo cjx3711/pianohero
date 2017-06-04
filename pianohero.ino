@@ -31,6 +31,7 @@ bool lastBtnState;
 
 uint8_t maxBrightness = 16;
 MidiFile midi;
+
 void setup() {
   Serial.begin(9600);
   Serial.println("Start");

@@ -3,7 +3,7 @@
 
 #include <SD.h>
 
-#define BLOCK_SIZE 6
+#define BLOCK_SIZE 3
 #define MAX_BLOCKS 200
 
 // min (8 * 4 * x) + (8 * (10000/x))
@@ -53,6 +53,8 @@ struct FilePos {
 struct BlockPointers {
   uint16_t currentBlock;
   uint16_t maxBlocks;
+  uint32_t maxFilePos;
+  uint32_t noteCount;
   // All the block pointers for a given midi channel;
   // Stores an array
   FilePos filePos[MAX_BLOCKS];
@@ -139,8 +141,8 @@ public:
     Serial.println(getBlockFloat(1) + 1);
     Serial.println(trackBuffers[1].currentlyLoaded);
     
-  
-    
+    printBuffers(0);
+    printBuffers(1);
   }
   bool allKeysReleased(uint32_t * keys) {
     for ( uint8_t i = 0; i < 88; i++ )
@@ -148,6 +150,45 @@ public:
         return false;
     return true;
   }
+  
+  void setLoadedBlocks(bool which, uint16_t block) {
+    // Do actual block loading logic here
+    if ( trackBuffers[which].currentlyLoaded < block ) {
+      // Moving up
+      if ( block - trackBuffers[which].currentlyLoaded == 1 ) {
+        Serial.println("Moving up 1");
+        // Moving up one
+        // Copy second half into first half
+        memcpy(&trackBuffers[which].notes[0], &trackBuffers[which].notes[BLOCK_SIZE], sizeof(Note) * BLOCK_SIZE);
+        
+        // Load stuff for second half
+        loadBlock(which, block + 1, &trackBuffers[which].notes[BLOCK_SIZE]);
+      }
+    } else if ( trackBuffers[which].currentlyLoaded > block ) {
+      // Moving down
+      if ( trackBuffers[which].currentlyLoaded - block == 1 ) {
+        Serial.println("Moving down 1");
+        // Moving down one
+        // Copy first half into second half
+        memcpy(&trackBuffers[which].notes[BLOCK_SIZE], &trackBuffers[which].notes[0], sizeof(Note) * BLOCK_SIZE);
+        
+        // Load stuff for first half
+        loadBlock(which, block, &trackBuffers[which].notes[0]);
+      }
+    }
+    trackBuffers[which].currentlyLoaded = block;
+  }
+
+  void printBuffers(bool which) {
+    Serial.print("Buffer "); Serial.print((int)which); Serial.println(" :");
+    for ( uint16_t i = 0; i < BLOCK_SIZE * 2; i++ ) {
+      if ( trackBuffers[which].currentlyLoaded * BLOCK_SIZE + i >= trackBlocks[which].noteCount ) break;
+      Serial.print(i); Serial.print(' '); Serial.print(trackBuffers[which].currentlyLoaded * BLOCK_SIZE + i);
+      Serial.print(' '); Serial.print(trackBuffers[which].notes[i].pos); Serial.print(' '); Serial.println(trackBuffers[which].notes[i].len);
+    }
+    Serial.println();
+  }
+  
   void loadBlock(bool which, uint16_t block, Note * dest) {
     uint16_t noteSequence[88]; // Stores the sequence number of each note
     uint32_t noteTimes[88]; // So we know which key has been pressed
@@ -155,10 +196,11 @@ public:
     uint8_t size = 0; // Used for run on messages
     for ( uint8_t i = 0; i < 88; i++ ) noteTimes[i] = MAX32;
     
+    Serial.print("Loading block "); Serial.print((int)which); Serial.print(' '); Serial.println(block);
     midiFile.seek(trackBlocks[which].filePos[block].position);
     uint32_t currentTime = trackBlocks[which].filePos[block].time;
     
-    while(noteCount < BLOCK_SIZE || !allKeysReleased(&noteTimes[0])) {
+    while((noteCount < BLOCK_SIZE || !allKeysReleased(&noteTimes[0])) && midiFile.position() < trackBlocks[which].maxFilePos) {
       uint32_t delta = readIntMidi(midiFile); //
       uint8_t type = readInt8(midiFile);
       switch(type) {
@@ -192,10 +234,7 @@ public:
       }
     }
   }
-  void setLoadedBlocks(bool which, uint16_t block) {
-    // Do actual block loading logic here
-    trackBuffers[which].currentlyLoaded = block;
-  }
+
   /**
    * Decides which blocks should be loaded into the buffer
    * e.g. 0 means 0 and 1 should be loaded, since the buffer has space for 2 blocks
@@ -332,6 +371,7 @@ public:
     
     Serial.println("Note count / position:");
     for ( uint8_t i = 0; i < trackCount; i++ ) {
+      trackBlocks[i].noteCount = noteCounts[i];
       Serial.print("   "); Serial.print(noteCounts[i]); Serial.print('\t'); Serial.println(trackLocations[i]); Serial.println();
     }
     
@@ -364,6 +404,11 @@ public:
         Serial.println(trackBlocks[i].filePos[j].time);
       }
       Serial.println();
+    }
+    
+    for ( uint8_t i = 0; i < trackCount; i++ ) {
+      if ( trackBlocks[i].maxBlocks >= 1 ) loadBlock(!!i, 0, &trackBuffers[i].notes[0]);
+      if ( trackBlocks[i].maxBlocks >= 2 ) loadBlock(!!i, 1, &trackBuffers[i].notes[BLOCK_SIZE]);
     }
     
     
@@ -523,6 +568,7 @@ public:
     }
     currentCount = 0;
     trackBlocks[blockNumber].currentBlock = 0;
+    trackBlocks[blockNumber].maxFilePos = end;
     f.seek(end);
   }
   
