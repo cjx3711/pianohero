@@ -51,19 +51,19 @@ void setup() {
   
   delay(500);
 
-  Serial.println("Sizes (Bytes):");
-  Serial.print("uint8_t:"); Serial.println(sizeof(uint8_t));
-  Serial.print("uint16_t:"); Serial.println(sizeof(uint16_t));
-  Serial.print("uint32_t:"); Serial.println(sizeof(uint32_t));
-  Serial.print("char:"); Serial.println(sizeof(char));
-  Serial.print("uint8_t*:"); Serial.println(sizeof(uint8_t*));
-  Serial.print("uint16_t*:"); Serial.println(sizeof(uint16_t*));
-  Serial.print("uint32_t*:"); Serial.println(sizeof(uint32_t*));
-  Serial.print("char*:"); Serial.println(sizeof(char*));
-  Serial.print("BlockPointers:"); Serial.println(sizeof(BlockPointers));
-  Serial.print("BlockPointers*:"); Serial.println(sizeof(BlockPointers*));
-  Serial.print("FilePos:"); Serial.println(sizeof(FilePos));
-  Serial.print("FilePos*:"); Serial.println(sizeof(FilePos*));
+  // Serial.println("Sizes (Bytes):");
+  // Serial.print("uint8_t:"); Serial.println(sizeof(uint8_t));
+  // Serial.print("uint16_t:"); Serial.println(sizeof(uint16_t));
+  // Serial.print("uint32_t:"); Serial.println(sizeof(uint32_t));
+  // Serial.print("char:"); Serial.println(sizeof(char));
+  // Serial.print("uint8_t*:"); Serial.println(sizeof(uint8_t*));
+  // Serial.print("uint16_t*:"); Serial.println(sizeof(uint16_t*));
+  // Serial.print("uint32_t*:"); Serial.println(sizeof(uint32_t*));
+  // Serial.print("char*:"); Serial.println(sizeof(char*));
+  // Serial.print("BlockPointers:"); Serial.println(sizeof(BlockPointers));
+  // Serial.print("BlockPointers*:"); Serial.println(sizeof(BlockPointers*));
+  // Serial.print("FilePos:"); Serial.println(sizeof(FilePos));
+  // Serial.print("FilePos*:"); Serial.println(sizeof(FilePos*));
   midi.init();
   
   if ( SD.begin() ) {

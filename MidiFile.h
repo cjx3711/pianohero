@@ -20,15 +20,15 @@
 // #define MIDI_DEBUG
 
 struct Note {
-  int pos;
-  uint8_t len;
+  uint32_t pos;
+  uint16_t len;
   uint8_t key;
   Note() {
     pos = 0;
     len = 2;
     key = 0;
   }
-  Note(int _pos, char _len, char _key) {
+  Note(uint32_t _pos, uint16_t _len, char _key) {
     pos = _pos;
     len = _len;
     key = _key;
@@ -58,6 +58,11 @@ struct BlockPointers {
   FilePos filePos[MAX_BLOCKS];
 };
 
+struct Track {
+  uint16_t currentlyLoaded = 0;
+  Note notes[BLOCK_SIZE * 2];
+};
+
 class MidiFile {
 public:
   // Metadata
@@ -67,6 +72,7 @@ public:
   uint16_t format, tracks, division;
   // Pointer to the 
   BlockPointers trackBlocks[2];
+  Track trackBuffers[2];
   uint8_t trackCount;
 
   Note notes[10];
@@ -119,16 +125,119 @@ public:
    
   void setPosition(float perc) {
     trackPosition = perc * trackLength;
-    
+    loadBlockLogic(0);
+    loadBlockLogic(1);
+    Serial.println();
     Serial.print("Pos: "); Serial.print(trackPosition); Serial.print('/'); Serial.println(trackLength);
     
     Serial.println("Track 1: ");
     Serial.print(getBlock(0) + 1); Serial.print('/'); Serial.println(trackBlocks[0].maxBlocks);
-
+    Serial.println(getBlockFloat(0) + 1);
+    Serial.println(trackBuffers[0].currentlyLoaded);
     Serial.println("Track 2: ");
     Serial.print(getBlock(1) + 1); Serial.print('/'); Serial.println(trackBlocks[1].maxBlocks);
+    Serial.println(getBlockFloat(1) + 1);
+    Serial.println(trackBuffers[1].currentlyLoaded);
+    
+  
+    
+  }
+  bool allKeysReleased(uint32_t * keys) {
+    for ( uint8_t i = 0; i < 88; i++ )
+      if (keys[i] != MAX32)
+        return false;
+    return true;
+  }
+  void loadBlock(bool which, uint16_t block, Note * dest) {
+    uint16_t noteSequence[88]; // Stores the sequence number of each note
+    uint32_t noteTimes[88]; // So we know which key has been pressed
+    uint16_t noteCount = 0;
+    uint8_t size = 0; // Used for run on messages
+    for ( uint8_t i = 0; i < 88; i++ ) noteTimes[i] = MAX32;
+    
+    midiFile.seek(trackBlocks[which].filePos[block].position);
+    uint32_t currentTime = trackBlocks[which].filePos[block].time;
+    
+    while(noteCount < BLOCK_SIZE || !allKeysReleased(&noteTimes[0])) {
+      uint32_t delta = readIntMidi(midiFile); //
+      uint8_t type = readInt8(midiFile);
+      switch(type) {
+        case 0xFF: // Meta event
+          skipMeta(midiFile); break; // Skip meta track
+        case 0xF0: // System Exclusive event
+        case 0xF7: 
+          skipSysex(midiFile); break; // Ignore sysex events, we're not dealing with it here.
+        case 0xc0 ... 0xdf: // MIDI message with 1 parameter
+          size = 2; readInt8(midiFile); break;
+        case 0x00 ... 0x7f: // MIDI run on message
+          for (uint8_t i = 2; i < size; i++) readInt8(midiFile); break;// Read next byte and dispose
+        case 0x80 ... 0xBf: // MIDI message with 2 parameters
+        case 0xe0 ... 0xef:
+          size = 3;          
+          uint8_t key = readInt8(midiFile) - 9; readInt8(midiFile); // Velocity, ignore
+          uint8_t midiType = type >> 4;
+          if ( midiType == 9 ) {
+            currentTime += !noteCount ? 0 : delta; // Ignore the delta for the first note
+            noteTimes[key] = currentTime;
+            noteSequence[key] = noteCount;
+            noteCount++; // This is a key press event. We only need to count keypresses.
+          } else if ( midiType == 8 ) {
+            currentTime += delta;
+            // Add the note to the buffer
+            dest[noteSequence[key]].pos = noteTimes[key];
+            dest[noteSequence[key]].len = (uint16_t)(currentTime - noteTimes[key]);
+            noteTimes[key] = MAX32;
+          }
+          break;
+      }
+    }
+  }
+  void setLoadedBlocks(bool which, uint16_t block) {
+    // Do actual block loading logic here
+    trackBuffers[which].currentlyLoaded = block;
+  }
+  /**
+   * Decides which blocks should be loaded into the buffer
+   * e.g. 0 means 0 and 1 should be loaded, since the buffer has space for 2 blocks
+   * Return range, 0 to maxBlocks - 2
+   */
+   void loadBlockLogic(bool which) {
+    float loaded = trackBuffers[which].currentlyLoaded;
+    float current = getBlockFloat(which);
+    float relativePos = current - loaded;
+    if ( relativePos >= 1.5 && loaded < trackBlocks[which].maxBlocks - 2) {
+      setLoadedBlocks(which, trackBuffers[which].currentlyLoaded + 1 );
+    } else if ( relativePos <= 0.5 && loaded > 0 ) {
+      setLoadedBlocks(which, trackBuffers[which].currentlyLoaded - 1 );
+    }
+  }
+  /**
+   * Gets the block number with percentage to next block
+   */
+  float getBlockFloat(bool which) {
+    uint16_t block = getBlock(which);
+    uint32_t time1 = getTimeFromBlock(which, block);
+    uint32_t time2 = getTimeFromBlock(which, block + 1);
+    float timePart = trackPosition - time1;
+    float timeDiff = time2 - time1;
+    return (float)block + (timePart / timeDiff);
   }
   
+  /**
+   * Gets the time associated with each block
+   * If the block is == maxBlocks, it returns the max time
+   */
+  uint32_t getTimeFromBlock(bool which, uint16_t block) {
+    if ( block < trackBlocks[which].maxBlocks ) { // Less than max
+      return trackBlocks[which].filePos[block].time;
+    } else { // Max block
+      return trackLength;
+    }
+  }
+  
+  /**
+   * Gets the block number that should contain the data for the current trackPosition
+   */
   uint16_t getBlock(bool which) {
     uint16_t whichBlock = 0;
     for ( uint16_t i = 0; i < trackBlocks[which].maxBlocks; i++ ) {
@@ -142,6 +251,7 @@ public:
     }
     return whichBlock;
   }
+  
   /**************************************
    *   FILE OPENING FUNCTIONS
    **************************************/
