@@ -65,6 +65,7 @@ public:
   uint32_t trackPosition = 0;
   uint32_t trackLength;
   uint16_t format, tracks, division;
+  // Pointer to the 
   BlockPointers trackBlocks[2];
   uint8_t trackCount;
 
@@ -296,10 +297,10 @@ public:
       uint8_t type = readInt8(f);
       switch(type) {
         case 0xFF: // Meta event
-          readInt8(f); f.seek(f.position() + readIntMidi(f));  break; // Read a meta type then skip by the length
+          skipMeta(f); break; // Skip meta track
         case 0xF0: // System Exclusive event
         case 0xF7: 
-          f.seek(f.position() + readIntMidi(f)); break; // Ignore sysex events, we're not dealing with it here.
+          skipSysex(f); break; // Ignore sysex events, we're not dealing with it here.
         case 0xc0 ... 0xdf: // MIDI message with 1 parameter
           size = 2; readInt8(f); break;
         case 0x00 ... 0x7f: // MIDI run on message
@@ -334,7 +335,7 @@ public:
           readMeta(f); break;
         case 0xF0: // System Exclusive event
         case 0xF7: 
-          f.seek(f.position() + readIntMidi(f)); break; // Ignore sysex events, we're not dealing with it here.
+          skipSysex(f); break; // Ignore sysex events, we're not dealing with it here.
         case 0xc0 ... 0xdf: // MIDI message with 1 parameter
           size = 2; readInt8(f); break;
         case 0x00 ... 0x7f: // MIDI run on message
@@ -365,6 +366,7 @@ public:
       uint32_t pos = f.position();
       uint32_t delta = readIntMidi(f);
       uint8_t type = readInt8(f);
+      Serial.print("POS: "); Serial.print(pos);  Serial.print(" D: "); Serial.print(delta); Serial.print(" type:"); Serial.println(type);
       switch(type) {
         case 0xFF: // Meta event
           readMeta(f); break;
@@ -396,6 +398,7 @@ public:
               currentCount = 0;
             }
           } else if ( midiType == 8 ) {
+            Serial.print("Release time: "); Serial.println(currentTime);
             currentTime += delta;
           }
           if ( midiType == 8 || midiType == 9 ) {
@@ -414,12 +417,19 @@ public:
     f.seek(end);
   }
   
+  void skipMeta(File &f) {
+    readInt8(f);
+    uint32_t length = readIntMidi(f);
+    uint32_t end = f.position() + length;
+    f.seek(end);
+  }
   void readMeta(File &f) {
     #ifdef MIDI_DEBUG
       Serial.println(" - Meta");
     #endif
     uint8_t metaType = readInt8(f);
     uint32_t length = readIntMidi(f);
+    uint32_t end = f.position() + length;
     
     switch ( metaType ) {
       case 0x51: { // Tempo event
@@ -438,7 +448,7 @@ public:
       }
       
       case 0x03: // Text event
-        Serial.println("Text event");
+        Serial.print("Text event. len: "); Serial.println(length);
         char * text = (char*)malloc(length+1);
         f.read(text, length);
         text[length] = 0;
@@ -446,12 +456,14 @@ public:
         Serial.println(text);
       break;
     }
-    f.seek(f.position() + length);
+    f.seek(end);
   }
   
   void skipSysex(File &f) {
     // Ignore sysex events, we're not dealing with it here.
-    f.seek(f.position() + readIntMidi(f));
+    uint32_t length = readIntMidi(f);
+    uint32_t end = f.position() + length;
+    f.seek(end);
   }
   
   /**
