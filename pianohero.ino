@@ -83,6 +83,8 @@ void setup() {
   
   digitalWrite(6, LOW);
   
+  updatePos();
+  
   lastRotState = digitalRead(ROTARY_1);
   lastBtnState = digitalRead(ROTARY_B);
 }
@@ -120,12 +122,12 @@ void loop() {
     // Serial.println(c2);
     if (c1 != lastRotState && !c1) {
       if (c2 != c1) { 
-         // Serial.println("Up");
-         pos -= 0.03;
+         Serial.println("Up");
+         pos -= 1 / (float)(((float)midi.trackLength / (float)midi.division) * (float)midi.qNoteScreenSize);
          updatePos();
        } else {
-         // Serial.println("Down");
-         pos += 0.03;
+         Serial.println("Down");
+         pos += 1 / (float)(((float)midi.trackLength / (float)midi.division) * (float)midi.qNoteScreenSize);
          updatePos();
        }
     }
@@ -140,58 +142,15 @@ void loop() {
 
   // long curMillis = millis();
   // float delta = (float)(curMillis - lastMillis) / 1000.0f;
-
-  // for ( int i = 0 ; i < KEYS * PIXELS_PER_KEY; i++ ) {
-  //    strip.setPixelColor(i, 0, 0, 0);
-  // }
-
-  // float currentLed = pos * (PIXELS_PER_KEY - 1);
-  // ledFloat = ledFloat * 0.97 + currentLed * 0.03;
-  // int led = (int)ledFloat;
-  // float fractionalPart = ledFloat - led;
-
-  // int maxBrightness = 30;
-  // int led1 = maxBrightness * (1-fractionalPart);
-  // int led2 = maxBrightness * (fractionalPart);
-  // 
-  // setScreenState(pos);
-  // for ( int i = 0 ; i < KEYS; i++ ) {
-  //   setKBPixel(i,led,led1,led1,led1);
-  //   setKBPixel(i,led+1,led2,led2,led2);
-  // }
-
-  //  for ( int i = 0 ; i < KEYS; i++ ) {
-  //    setKBPixel(i,led,maxBrightness,maxBrightness,maxBrightness);
-  //  }
-  // strip.show();
+  setScreenState();
 }
 
 void updatePos() {
   if ( pos < 0 ) pos = 0;
   if ( pos > 1 ) pos = 1;
-  // Serial.println(pos);
-  for ( int i = 0 ; i < KEYS * PIXELS_PER_KEY; i++ ) {
-     strip.setPixelColor(i, 0, 0, 0);
-  }
+  Serial.print("POS: "); Serial.println(pos);
+
   midi.setPosition(pos);
-  uint16_t i = midi.getFirstInScreen(0);
-  
-  uint32_t noteCount = midi.getNoteCount(0);
-  Serial.print("First: ");
-  Serial.print(i); Serial.print(" max: "); Serial.println(noteCount); 
-  Serial.println("Notes in screen:");
-  while ( i < noteCount ) {
-    Note * note = midi.getNoteInScreen(0, i);
-    if ( !note ) {
-      break;
-    }
-    Serial.print(i); Serial.print(' '); Serial.print(note->pos); Serial.print(' '); Serial.println(note->key - 72);
-    uint8_t pos = note->pos / 960;
-    uint8_t len = note->len / 960;
-    drawNote(note->key - 72, pos, len, i % 2 );
-    i++;
-  }
-  strip.show();
 }
 
 void printDirectory(File dir, int numTabs) {
@@ -216,7 +175,10 @@ void printDirectory(File dir, int numTabs) {
 }
 
 
-void setKBPixel(int key, int pos, int rP, int gP, int bP) {
+void setKBPixel(uint8_t key, uint8_t pos, float rP, float gP, float bP) {
+  uint8_t R = rP * maxBrightness;
+  uint8_t G = gP * maxBrightness;
+  uint8_t B = bP * maxBrightness;
   // Odd keys are inverted
   if ( key > KEYS - 1 ) key = KEYS - 1;
   if ( key < 0 ) key = 0;
@@ -229,47 +191,55 @@ void setKBPixel(int key, int pos, int rP, int gP, int bP) {
   } else {
     block += PIXELS_PER_KEY - pos - 1;
   }
-  strip.setPixelColor(block, rP, gP, bP);
-}
-
-void setKBPixelInv(int key, int pos, int rP, int gP, int bP) {
-  setKBPixel(key, PIXELS_PER_KEY - pos, rP, gP, bP);
-}
-
-bool inScreen(int notePos, int noteIndex) {
-  if ( notePos >= (int)(midi.getNote(noteIndex).pos + midi.getNote(noteIndex).len) ) {
-    return false; // Past it's playtime
-  }
-  if ( notePos + SCREEN_HEIGHT < (int)midi.getNote(noteIndex).pos ) {
-    return false; // Not yet in view
-  }
-  return true;
-}
-void setScreenState(float pos) {
-  int maxNote = 22;
-  int currentNote = ((maxNote + SCREEN_HEIGHT + 2) * pos) - SCREEN_HEIGHT - 2;
-  for ( int i = 0; i < 10; i++ ) {
-    if ( inScreen(currentNote, i) ) {
-      // Calculate position on screen
-      int pos = currentNote - midi.getNote(i).pos + SCREEN_HEIGHT;
-
-      drawNote(midi.getNote(i).key, pos, midi.getNote(i).len, i % 2 );
-    }
-  }
+  strip.setPixelColor(block, G, R, B);
 }
 
 void drawNote(uint8_t key, uint8_t pos, uint8_t len, uint8_t col) {
-  if ( col == 0 ) {
-    setKBPixelInv(key, pos, 0, maxBrightness, 0.875 * maxBrightness);
-  } else {
-    setKBPixelInv(key, pos, 0.25 * maxBrightness, 0.5 * maxBrightness, maxBrightness);
-  }
-  for ( int l = 1; l < len; l++) {
-    if ( col == 0 ) {
-      setKBPixelInv(key, pos - l, 0, 0.4375 * maxBrightness, 0.25 * maxBrightness);
-    } else {
-      setKBPixelInv(key, pos - l, 0.0625 * maxBrightness, 0.125 * maxBrightness, 0.375 * maxBrightness);
+  // Serial.print(pos); Serial.print(' '); Serial.print(len); Serial.print(' '); Serial.println(key);
+  for ( uint8_t i = 0; i < len; i++ ) {
+    uint8_t dispPos = pos + i;
+    if ( dispPos < SCREEN_HEIGHT ) { // Out of screen
+      if ( i == 0 ) {
+        if ( col ) {
+          setKBPixel(key, dispPos, 0, 1, 0.475);
+        } else {
+          setKBPixel(key, dispPos, 1, 0.5, 0.25);
+        }
+        
+      } else {
+        if ( col ) {
+          setKBPixel(key, dispPos, 0, 0.38 , 0.12);
+        } else {
+          setKBPixel(key, dispPos, 0.375, 0.125, 0.0625);
+        }
+      }
+      
     }
-
   }
+}
+
+void setScreenState() {
+  for ( uint32_t i = 0 ; i < KEYS * PIXELS_PER_KEY; i++ ) {
+     strip.setPixelColor(i, 0, 0, 0);
+  }
+  for ( uint8_t which = 0; which < midi.trackCount; which++ ) {
+    uint16_t i = midi.getFirstInScreen(which);
+    
+    uint32_t noteCount = midi.getNoteCount(which);
+    // Serial.print("First: ");
+    // Serial.print(i); Serial.print(" max: "); Serial.println(noteCount); 
+    // Serial.println("Notes in screen:");
+    while ( i < noteCount ) {
+      Note * note = midi.getNoteInScreen(which, i);
+      if ( !note ) break;
+      // Serial.print(i); Serial.print(' ');
+      uint8_t pos = note->pos / (midi.division / midi.qNoteScreenSize) - midi.trackPosition  / (midi.division / midi.qNoteScreenSize);
+      uint8_t len = note->len / (midi.division / midi.qNoteScreenSize);
+      
+      drawNote(note->key - 72, pos, len, i % 2 );
+      i++;
+    }
+  }
+
+  strip.show();
 }

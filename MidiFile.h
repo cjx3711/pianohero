@@ -3,7 +3,7 @@
 
 #include <SD.h>
 
-#define BLOCK_SIZE 5
+#define BLOCK_SIZE 50
 #define MAX_BLOCKS 200
 
 // Notes that can be displayed on screen
@@ -148,10 +148,8 @@ public:
   
   Note * getNote(bool which, uint16_t i) {
     if ( i < trackBuffers[which].currentlyLoaded * BLOCK_SIZE ) {
-      Serial.print("Out of buffer: ");Serial.println(i);
       return NULL; // Out of the buffer range
     } else if ( i >= getNoteCount(which) ) {
-      Serial.print("Out of buffer: ");Serial.println(i);
       return NULL;
     }
     i -= trackBuffers[which].currentlyLoaded * BLOCK_SIZE;
