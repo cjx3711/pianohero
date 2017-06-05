@@ -10,9 +10,6 @@
 #define ROTARY_1 15
 #define ROTARY_2 16
 #define ROTARY_B 17
-// Notes that can be displayed on screen
-// Todo: This will eventually use the note length
-#define SCREEN_HEIGHT 10
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(KEYS * PIXELS_PER_KEY, STRIP_PIN, NEO_RGB + NEO_KHZ800);
 
@@ -73,7 +70,7 @@ void setup() {
     File root = SD.open("/");
     printDirectory(root, 0);
     
-    midi.openFile((char*)"test-two.mid");
+    midi.openFile((char*)"test-one.mid");
   } else {
     Serial.println("SD fail");
   }
@@ -144,9 +141,9 @@ void loop() {
   // long curMillis = millis();
   // float delta = (float)(curMillis - lastMillis) / 1000.0f;
 
-  for ( int i = 0 ; i < KEYS * PIXELS_PER_KEY; i++ ) {
-     strip.setPixelColor(i, 0, 0, 0);
-  }
+  // for ( int i = 0 ; i < KEYS * PIXELS_PER_KEY; i++ ) {
+  //    strip.setPixelColor(i, 0, 0, 0);
+  // }
 
   // float currentLed = pos * (PIXELS_PER_KEY - 1);
   // ledFloat = ledFloat * 0.97 + currentLed * 0.03;
@@ -157,7 +154,7 @@ void loop() {
   // int led1 = maxBrightness * (1-fractionalPart);
   // int led2 = maxBrightness * (fractionalPart);
   // 
-  setScreenState(pos);
+  // setScreenState(pos);
   // for ( int i = 0 ; i < KEYS; i++ ) {
   //   setKBPixel(i,led,led1,led1,led1);
   //   setKBPixel(i,led+1,led2,led2,led2);
@@ -166,13 +163,35 @@ void loop() {
   //  for ( int i = 0 ; i < KEYS; i++ ) {
   //    setKBPixel(i,led,maxBrightness,maxBrightness,maxBrightness);
   //  }
-  strip.show();
+  // strip.show();
 }
 
 void updatePos() {
   if ( pos < 0 ) pos = 0;
   if ( pos > 1 ) pos = 1;
+  // Serial.println(pos);
+  for ( int i = 0 ; i < KEYS * PIXELS_PER_KEY; i++ ) {
+     strip.setPixelColor(i, 0, 0, 0);
+  }
   midi.setPosition(pos);
+  uint16_t i = midi.getFirstInScreen(0);
+  
+  uint32_t noteCount = midi.getNoteCount(0);
+  Serial.print("First: ");
+  Serial.print(i); Serial.print(" max: "); Serial.println(noteCount); 
+  Serial.println("Notes in screen:");
+  while ( i < noteCount ) {
+    Note * note = midi.getNoteInScreen(0, i);
+    if ( !note ) {
+      break;
+    }
+    Serial.print(i); Serial.print(' '); Serial.print(note->pos); Serial.print(' '); Serial.println(note->key - 72);
+    uint8_t pos = note->pos / 960;
+    uint8_t len = note->len / 960;
+    drawNote(note->key - 72, pos, len, i % 2 );
+    i++;
+  }
+  strip.show();
 }
 
 void printDirectory(File dir, int numTabs) {
@@ -218,10 +237,10 @@ void setKBPixelInv(int key, int pos, int rP, int gP, int bP) {
 }
 
 bool inScreen(int notePos, int noteIndex) {
-  if ( notePos >= midi.getNote(noteIndex).pos + midi.getNote(noteIndex).len ) {
+  if ( notePos >= (int)(midi.getNote(noteIndex).pos + midi.getNote(noteIndex).len) ) {
     return false; // Past it's playtime
   }
-  if ( notePos + SCREEN_HEIGHT < midi.getNote(noteIndex).pos ) {
+  if ( notePos + SCREEN_HEIGHT < (int)midi.getNote(noteIndex).pos ) {
     return false; // Not yet in view
   }
   return true;
@@ -234,19 +253,23 @@ void setScreenState(float pos) {
       // Calculate position on screen
       int pos = currentNote - midi.getNote(i).pos + SCREEN_HEIGHT;
 
-      if ( i % 2 ) {
-        setKBPixelInv(midi.getNote(i).key, pos, 0, maxBrightness, 0.875 * maxBrightness);
-      } else {
-        setKBPixelInv(midi.getNote(i).key, pos, 0.25 * maxBrightness, 0.5 * maxBrightness, maxBrightness);
-      }
-      for ( int l = 1; l < midi.getNote(i).len; l++) {
-        if ( i % 2 ) {
-          setKBPixelInv(midi.getNote(i).key, pos - l, 0, 0.4375 * maxBrightness, 0.25 * maxBrightness);
-        } else {
-          setKBPixelInv(midi.getNote(i).key, pos - l, 0.0625 * maxBrightness, 0.125 * maxBrightness, 0.375 * maxBrightness);
-        }
-
-      }
+      drawNote(midi.getNote(i).key, pos, midi.getNote(i).len, i % 2 );
     }
+  }
+}
+
+void drawNote(uint8_t key, uint8_t pos, uint8_t len, uint8_t col) {
+  if ( col == 0 ) {
+    setKBPixelInv(key, pos, 0, maxBrightness, 0.875 * maxBrightness);
+  } else {
+    setKBPixelInv(key, pos, 0.25 * maxBrightness, 0.5 * maxBrightness, maxBrightness);
+  }
+  for ( int l = 1; l < len; l++) {
+    if ( col == 0 ) {
+      setKBPixelInv(key, pos - l, 0, 0.4375 * maxBrightness, 0.25 * maxBrightness);
+    } else {
+      setKBPixelInv(key, pos - l, 0.0625 * maxBrightness, 0.125 * maxBrightness, 0.375 * maxBrightness);
+    }
+
   }
 }

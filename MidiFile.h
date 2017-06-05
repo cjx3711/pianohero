@@ -6,6 +6,10 @@
 #define BLOCK_SIZE 5
 #define MAX_BLOCKS 200
 
+// Notes that can be displayed on screen
+// Todo: This will eventually use the note length
+#define SCREEN_HEIGHT 10
+
 // min (8 * 4 * x) + (8 * (10000/x))
 
 // The number representations of the ascii code for
@@ -14,6 +18,7 @@
 #define MTRK 1297379947
 
 #define MAX32 4294967295
+#define MAX16 65535
 
 // https://github.com/5shekel/midi.player/blob/master/libs/MD_MIDIFile/MD_MIDITrack.cpp
 
@@ -67,6 +72,12 @@ struct Track {
 
 class MidiFile {
 public:
+  uint8_t clocksPerTick;
+  uint8_t notesPer24Clocks;
+  uint32_t tempo; 
+  uint8_t qNoteScreenSize = 2; // The height of a single quarter note
+  uint32_t screenTop = 0;
+  uint32_t screenBottom = 0;
   // Used for key counting
   uint16_t noteSequence[88]; // Stores the sequence number of each note
   uint32_t noteTimes[88]; // So we know which key has been pressed
@@ -79,7 +90,7 @@ public:
   BlockPointers trackBlocks[2];
   Track trackBuffers[2];
   uint8_t trackCount;
-
+  
   Note notes[10];
   // Note tempNotes[2 * BLOCK_SIZE];
   File midiFile;
@@ -111,25 +122,75 @@ public:
     notes[9].pos = 18 + 2;
     
     #ifdef MIDI_DEBUG
-      for ( int i = 0; i < 10; i++) {
-        Serial.print(notes[i].pos); Serial.print(' ');
-        Serial.print(notes[i].len); Serial.print(' ');
-        Serial.print(notes[i].key); Serial.println();
-      }
+    for ( int i = 0; i < 10; i++) {
+      Serial.print(notes[i].pos); Serial.print(' ');
+      Serial.print(notes[i].len); Serial.print(' ');
+      Serial.print(notes[i].key); Serial.println();
+    }
     #endif
   }
   
-
+  
   /**************************************
-   *   FILE ACCESSING FUNCTIONS
-   **************************************/
-   Note getNote(int i) {
-     // TODO: Do some hot swapping stuff
-     return notes[i];
-   }
-   
+  *   FILE ACCESSING FUNCTIONS
+  **************************************/
+  Note getNote(int i) {
+    // TODO: Do some hot swapping stuff
+    return notes[i];
+  }
+  
+  Note * getNoteInScreen(bool which, uint16_t i) {
+    if ( !inScreen(which, i) ) {
+      return NULL;
+    }
+    return getNote(which, i);
+  }
+  
+  Note * getNote(bool which, uint16_t i) {
+    if ( i < trackBuffers[which].currentlyLoaded * BLOCK_SIZE ) {
+      Serial.print("Out of buffer: ");Serial.println(i);
+      return NULL; // Out of the buffer range
+    } else if ( i >= getNoteCount(which) ) {
+      Serial.print("Out of buffer: ");Serial.println(i);
+      return NULL;
+    }
+    i -= trackBuffers[which].currentlyLoaded * BLOCK_SIZE;
+    return &trackBuffers[which].notes[i];
+  }
+  
+  uint16_t getFirstInScreen(bool which) {
+    for ( uint16_t i = 0 ; i < BLOCK_SIZE * 2; i++ ) {
+      uint16_t I = i + trackBuffers[which].currentlyLoaded * BLOCK_SIZE;
+      if ( inScreen(which, I) ) return I;
+    }
+    return MAX16;
+  }
+  
+  uint32_t getNoteCount(bool which) {
+    return trackBlocks[which].noteCount;
+  }
+  
+  bool inScreen(bool which, uint16_t noteIndex) {
+    Note * note = getNote(which, noteIndex);
+    if ( !note ) return false; // Out of the buffer range
+    
+    if ( note->pos <= screenTop &&
+         note->pos + note->len >= screenBottom ) {
+           return true;
+         }
+    return false;
+  }
+  
+  void calculateScreenBoundaries() {
+    screenBottom = trackPosition;
+    screenTop = trackPosition + ((float)SCREEN_HEIGHT / (float)qNoteScreenSize) * division;
+    Serial.print("Screen Top: "); Serial.println(screenTop);
+    Serial.print("Screen Btm: "); Serial.println(screenBottom);
+  }
+  
   void setPosition(float perc) {
     trackPosition = perc * trackLength;
+    calculateScreenBoundaries();
     loadBlockLogic(0);
     loadBlockLogic(1);
     Serial.println();
@@ -149,8 +210,8 @@ public:
   }
   bool allKeysReleased(uint32_t * keys) {
     for ( uint8_t i = 0; i < 88; i++ )
-      if (keys[i] != MAX32)
-        return false;
+    if (keys[i] != MAX32)
+    return false;
     return true;
   }
   
@@ -175,7 +236,7 @@ public:
     }
     trackBuffers[which].currentlyLoaded = block;
   }
-
+  
   void printBuffers(bool which) {
     Serial.print("Buffer "); Serial.print((int)which); Serial.println(" :");
     for ( uint16_t i = 0; i < BLOCK_SIZE * 2; i++ ) {
@@ -201,53 +262,54 @@ public:
       uint8_t type = readInt8(midiFile);
       switch(type) {
         case 0xFF: // Meta event
-          skipMeta(midiFile); break; // Skip meta track
+        skipMeta(midiFile); break; // Skip meta track
         case 0xF0: // System Exclusive event
         case 0xF7: 
-          skipSysex(midiFile); break; // Ignore sysex events, we're not dealing with it here.
+        skipSysex(midiFile); break; // Ignore sysex events, we're not dealing with it here.
         case 0xc0 ... 0xdf: // MIDI message with 1 parameter
-          size = 2; readInt8(midiFile); break;
+        size = 2; readInt8(midiFile); break;
         case 0x00 ... 0x7f: // MIDI run on message
-          for (uint8_t i = 2; i < size; i++) readInt8(midiFile); break;// Read next byte and dispose
+        for (uint8_t i = 2; i < size; i++) readInt8(midiFile); break;// Read next byte and dispose
         case 0x80 ... 0xBf: // MIDI message with 2 parameters
         case 0xe0 ... 0xef:
-          size = 3;          
-          uint8_t key = readInt8(midiFile) - 9; readInt8(midiFile); // Velocity, ignore
-          uint8_t midiType = type >> 4;
-          if ( midiType == 9 ) {
-            currentTime += !noteCount ? 0 : delta; // Ignore the delta for the first note
-            noteTimes[key] = currentTime;
-            noteSequence[key] = noteCount;
-            Serial.print("Down Pos: "); Serial.print(pos);
-            Serial.print(" Sequence: "); Serial.print(noteSequence[key]);
-            Serial.print(" Key: "); Serial.print(key); 
-            Serial.print(" Time: "); Serial.println(currentTime);
-            noteCount++; // This is a key press event. We only need to count keypresses.
-          } else if ( midiType == 8 ) {
-            currentTime += delta;
-            Serial.print("Up   Pos: "); Serial.print(pos);
-            Serial.print(" Sequence: "); Serial.print(noteSequence[key]);
-            Serial.print(" Key: "); Serial.print(key);
-            Serial.print(" Time: "); Serial.println(currentTime);
-
-            // Add the note to the buffer
-            if ( noteTimes[key] != MAX32 ) {
-              dest[noteSequence[key]].pos = noteTimes[key];
-              dest[noteSequence[key]].len = (uint16_t)(currentTime - noteTimes[key]);
-              noteTimes[key] = MAX32;
-            }
+        size = 3;          
+        uint8_t key = readInt8(midiFile) - 9; readInt8(midiFile); // Velocity, ignore
+        uint8_t midiType = type >> 4;
+        if ( midiType == 9 ) {
+          currentTime += !noteCount ? 0 : delta; // Ignore the delta for the first note
+          noteTimes[key] = currentTime;
+          noteSequence[key] = noteCount;
+          Serial.print("Down Pos: "); Serial.print(pos);
+          Serial.print(" Sequence: "); Serial.print(noteSequence[key]);
+          Serial.print(" Key: "); Serial.print(key); 
+          Serial.print(" Time: "); Serial.println(currentTime);
+          noteCount++; // This is a key press event. We only need to count keypresses.
+        } else if ( midiType == 8 ) {
+          currentTime += delta;
+          Serial.print("Up   Pos: "); Serial.print(pos);
+          Serial.print(" Sequence: "); Serial.print(noteSequence[key]);
+          Serial.print(" Key: "); Serial.print(key);
+          Serial.print(" Time: "); Serial.println(currentTime);
+          
+          // Add the note to the buffer
+          if ( noteTimes[key] != MAX32 ) {
+            dest[noteSequence[key]].pos = noteTimes[key];
+            dest[noteSequence[key]].len = (uint16_t)(currentTime - noteTimes[key]);
+            dest[noteSequence[key]].key = key + 9;
+            noteTimes[key] = MAX32;
           }
-          break;
+        }
+        break;
       }
     }
   }
-
+  
   /**
-   * Decides which blocks should be loaded into the buffer
-   * e.g. 0 means 0 and 1 should be loaded, since the buffer has space for 2 blocks
-   * Return range, 0 to maxBlocks - 2
-   */
-   void loadBlockLogic(bool which) {
+  * Decides which blocks should be loaded into the buffer
+  * e.g. 0 means 0 and 1 should be loaded, since the buffer has space for 2 blocks
+  * Return range, 0 to maxBlocks - 2
+  */
+  void loadBlockLogic(bool which) {
     float loaded = trackBuffers[which].currentlyLoaded;
     float current = getBlockFloat(which);
     float relativePos = current - loaded;
@@ -258,8 +320,8 @@ public:
     }
   }
   /**
-   * Gets the block number with percentage to next block
-   */
+  * Gets the block number with percentage to next block
+  */
   float getBlockFloat(bool which) {
     uint16_t block = getBlock(which);
     uint32_t time1 = getTimeFromBlock(which, block);
@@ -270,9 +332,9 @@ public:
   }
   
   /**
-   * Gets the time associated with each block
-   * If the block is == maxBlocks, it returns the max time
-   */
+  * Gets the time associated with each block
+  * If the block is == maxBlocks, it returns the max time
+  */
   uint32_t getTimeFromBlock(bool which, uint16_t block) {
     if ( block < trackBlocks[which].maxBlocks ) { // Less than max
       return trackBlocks[which].filePos[block].time;
@@ -282,8 +344,8 @@ public:
   }
   
   /**
-   * Gets the block number that should contain the data for the current trackPosition
-   */
+  * Gets the block number that should contain the data for the current trackPosition
+  */
   uint16_t getBlock(bool which) {
     uint16_t whichBlock = 0;
     for ( uint16_t i = 0; i < trackBlocks[which].maxBlocks; i++ ) {
@@ -299,12 +361,12 @@ public:
   }
   
   /**************************************
-   *   FILE OPENING FUNCTIONS
-   **************************************/
+  *   FILE OPENING FUNCTIONS
+  **************************************/
   /**
-   * Opens the midi file and loads the important information
-   * as well as the block information
-   */
+  * Opens the midi file and loads the important information
+  * as well as the block information
+  */
   void openFile(char * filename) {
     Serial.println("-------");
     if ( !SD.exists(filename) ) {
@@ -320,8 +382,8 @@ public:
     // Gets the header information and counts the number of tracks with midi information
     while(midiFile.position() < midiFile.size()) {
       #ifdef MIDI_DEBUG
-        Serial.print("Chunk Pos: ");
-        Serial.print(midiFile.position());
+      Serial.print("Chunk Pos: ");
+      Serial.print(midiFile.position());
       #endif
       uint32_t header = readInt32(midiFile);
       switch( header ) {
@@ -434,11 +496,9 @@ public:
     format = readInt16(f);
     tracks = readInt16(f);
     division = readInt16(f);
-    #ifdef MIDI_DEBUG
-      Serial.print("Fmt: "); Serial.println(format);
-      Serial.print("Trk: "); Serial.println(tracks);
-      Serial.print("Div: "); Serial.println(division);
-    #endif
+    Serial.print("Fmt: "); Serial.println(format);
+    Serial.print("Trk: "); Serial.println(tracks);
+    Serial.print("Div: "); Serial.println(division);
     f.seek(end); // This should not be required, but just in case
   }
   void skipHeader(File &f) {
@@ -447,12 +507,11 @@ public:
   }
   
   /**
-   * Counts the number of notes in a midi track.
-   * If the second param is set to true, it will break once a
-   * note is detected, returning 1.
-   */
+  * Counts the number of notes in a midi track.
+  * If the second param is set to true, it will break once a
+  * note is detected, returning 1.
+  */
   uint32_t countNotesInTrack(File &f, bool breakOnFirst = false) {
-    Serial.print(f.position());
     uint32_t length = readInt32(f);
     uint32_t end = f.position() + length;
     uint8_t size = 0; // Size used for midi run on messages
@@ -462,20 +521,20 @@ public:
       uint8_t type = readInt8(f);
       switch(type) {
         case 0xFF: // Meta event
-          skipMeta(f); break; // Skip meta track
+        skipMeta(f); break; // Skip meta track
         case 0xF0: // System Exclusive event
         case 0xF7: 
-          skipSysex(f); break; // Ignore sysex events, we're not dealing with it here.
+        skipSysex(f); break; // Ignore sysex events, we're not dealing with it here.
         case 0xc0 ... 0xdf: // MIDI message with 1 parameter
-          size = 2; readInt8(f); break;
+        size = 2; readInt8(f); break;
         case 0x00 ... 0x7f: // MIDI run on message
-          for (uint8_t i = 2; i < size; i++) readInt8(f); break;// Read next byte and dispose
+        for (uint8_t i = 2; i < size; i++) readInt8(f); break;// Read next byte and dispose
         case 0x80 ... 0xBf: // MIDI message with 2 parameters
         case 0xe0 ... 0xef:
-          size = 3;
-          readInt8(f); readInt8(f);
-          if ( type >> 4 == 9 ) noteCount++; // This is a key press event. We only need to count keypresses.
-          break;
+        size = 3;
+        readInt8(f); readInt8(f);
+        if ( type >> 4 == 9 ) noteCount++; // This is a key press event. We only need to count keypresses.
+        break;
       }
       if ( breakOnFirst && noteCount > 0 ) break; // Once we find a single note, we can break out of the loop
     }
@@ -484,8 +543,8 @@ public:
   }
   
   /**
-   * Reads the metadata from a meta track
-   */
+  * Reads the metadata from a meta track
+  */
   void readMetaTrack(File &f) {
     uint32_t length = readInt32(f);
     uint32_t end = f.position() + length;
@@ -497,27 +556,27 @@ public:
       uint8_t type = readInt8(f);
       switch(type) {
         case 0xFF: // Meta event
-          readMeta(f); break;
+        readMeta(f); break;
         case 0xF0: // System Exclusive event
         case 0xF7: 
-          skipSysex(f); break; // Ignore sysex events, we're not dealing with it here.
+        skipSysex(f); break; // Ignore sysex events, we're not dealing with it here.
         case 0xc0 ... 0xdf: // MIDI message with 1 parameter
-          size = 2; readInt8(f); break;
+        size = 2; readInt8(f); break;
         case 0x00 ... 0x7f: // MIDI run on message
-          for (uint8_t i = 2; i < size; i++) readInt8(f); break;// Read next byte and dispose
+        for (uint8_t i = 2; i < size; i++) readInt8(f); break;// Read next byte and dispose
         case 0x80 ... 0xBf: // MIDI message with 2 parameters
         case 0xe0 ... 0xef:
-          size = 3; readInt8(f); readInt8(f);
-          break;
+        size = 3; readInt8(f); readInt8(f);
+        break;
       }
     }
     f.seek(end);
   }
   
   /**
-   * Reads the midi notes to determine where the start of the blocks are
-   * in a single track.
-   */
+  * Reads the midi notes to determine where the start of the blocks are
+  * in a single track.
+  */
   void getBlockPositionsInTrack(File &f, uint8_t blockNumber) {
     uint32_t length = readInt32(f);
     uint32_t end = f.position() + length;
@@ -531,31 +590,31 @@ public:
       uint32_t pos = f.position();
       uint32_t delta = readIntMidi(f);
       uint8_t type = readInt8(f);
-      Serial.print("POS: "); Serial.print(pos);  Serial.print(" D: "); Serial.print(delta); Serial.print(" type:"); Serial.println(type);
+      // Serial.print("POS: "); Serial.print(pos);  Serial.print(" D: "); Serial.print(delta); Serial.print(" type:"); Serial.println(type);
       switch(type) {
         case 0xFF: // Meta event
-          readMeta(f); break;
+        readMeta(f); break;
         case 0xF0: // System Exclusive event
         case 0xF7:
-          skipSysex(f); break;
+        skipSysex(f); break;
         case 0x80 ... 0xBf:	// MIDI message with 2 parameters
-	      case 0xe0 ... 0xef: {
+        case 0xe0 ... 0xef: {
           size = 3;
           /* uint8_t key = */ readInt8(f) /*- 9*/; readInt8(f);
           uint8_t midiType = type >> 4;
           if ( midiType == 9 ) { // When it detects a keydown, increment the count
             currentTime += delta;
-            Serial.print("Pos: "); Serial.print(pos);  Serial.print(" Time: "); Serial.println(currentTime);
+            // Serial.print("Pos: "); Serial.print(pos);  Serial.print(" Time: "); Serial.println(currentTime);
             if ( currentCount == 0 ) {
-              Serial.print("Add "); 
+              // Serial.print("Add "); 
               uint16_t i = trackBlocks[blockNumber].currentBlock;
-              Serial.print("Block: "); Serial.print(i);
+              // Serial.print("Block: "); Serial.print(i);
               // Add position and time to the block
-
+              
               trackBlocks[blockNumber].filePos[i].position = pos;
               trackBlocks[blockNumber].filePos[i].time = currentTime;
               trackBlocks[blockNumber].currentBlock++;
-              Serial.print(" Pos: "); Serial.print(trackBlocks[blockNumber].filePos[i].position);  Serial.print(" Time: "); Serial.println(  trackBlocks[blockNumber].filePos[i].time );
+              // Serial.print(" Pos: "); Serial.print(trackBlocks[blockNumber].filePos[i].position);  Serial.print(" Time: "); Serial.println(  trackBlocks[blockNumber].filePos[i].time );
               
             }
             currentCount++;
@@ -563,7 +622,7 @@ public:
               currentCount = 0;
             }
           } else if ( midiType == 8 ) {
-            Serial.print("Release time: "); Serial.println(currentTime);
+            // Serial.print("Release time: "); Serial.println(currentTime);
             currentTime += delta;
           }
           if ( midiType == 8 || midiType == 9 ) {
@@ -572,9 +631,9 @@ public:
           break;
         }
         case 0xc0 ... 0xdf:	// MIDI message with 1 parameter
-          size = 2; readInt8(f); break;
+        size = 2; readInt8(f); break;
         case 0x00 ... 0x7f:	// MIDI run on message
-          for (uint8_t i = 2; i < size; i++) readInt8(f); break;// Read next byte and dispose
+        for (uint8_t i = 2; i < size; i++) readInt8(f); break;// Read next byte and dispose
       }
     }
     currentCount = 0;
@@ -591,7 +650,7 @@ public:
   }
   void readMeta(File &f) {
     #ifdef MIDI_DEBUG
-      Serial.println(" - Meta");
+    Serial.println(" - Meta");
     #endif
     uint8_t metaType = readInt8(f);
     uint32_t length = readIntMidi(f);
@@ -600,7 +659,9 @@ public:
     switch ( metaType ) {
       case 0x51: { // Tempo event
         Serial.println("Tempo event");
-        readInt24(f); // uint32_t tempo = 
+        tempo = readInt24(f); // uint32_t tempo = 
+        Serial.print("Tempo: "); Serial.println(tempo);
+        
         break;
       }
       
@@ -608,18 +669,21 @@ public:
         Serial.println("Time Signature");
         readInt8(f); // uint32_t timeSNum = 
         readInt8(f); // uint32_t timeSDen = 
-        readInt8(f); // uint32_t clocksPerTick = 
-        readInt8(f); // uint32_t notesPer24Clocks = 
+        clocksPerTick = readInt8(f); // uint32_t clocksPerTick = 
+        notesPer24Clocks = readInt8(f); // uint32_t notesPer24Clocks = 
+        Serial.print("Clocks per tick: "); Serial.println(clocksPerTick);
+        Serial.print("Notes / 24 clocks: "); Serial.println(notesPer24Clocks);
+        
         break;
       }
       
       case 0x03: // Text event
-        Serial.print("Text event. len: "); Serial.println(length);
-        char * text = (char*)malloc(length+1);
-        f.read(text, length);
-        text[length] = 0;
-        Serial.print('\t');
-        Serial.println(text);
+      Serial.print("Text event. len: "); Serial.println(length);
+      char * text = (char*)malloc(length+1);
+      f.read(text, length);
+      text[length] = 0;
+      Serial.print('\t');
+      Serial.println(text);
       break;
     }
     f.seek(end);
@@ -632,37 +696,6 @@ public:
     f.seek(end);
   }
   
-  /**
-   * Reads the midi chunk. Size is assumed to be 3
-   */
-  // void read3Midi(File &f, uint8_t type) {
-  //   #ifdef MIDI_DEBUG
-  //     Serial.print(" - Midi ");
-  //   #endif
-  //   uint8_t first4 = type >> 4; 
-  //   uint8_t data1 = readInt8(f); // Key (for 0x8 and 0x9 events)
-  //   uint8_t data2 = readInt8(f); // Valocity (for 0x8 and 0x9 events)
-  //   
-  //   #ifdef MIDI_DEBUG
-  //     Serial.println(first4);
-  //   #endif
-  //   
-  //   // There are lots of other event s, but this program will ignore it
-  //   if ( first4 == 9 ) { // When it detects a keydown, increment the count
-  //     
-  //   }
-  //   
-  //   // if ( first4 == 8 || first4 == 9 ) {
-  //   //   uint8_t channel = type & 15; // 00001111
-  //   //   Serial.print(channel); Serial.print(" ");
-  //   //   Serial.print(data1); Serial.print(" ");
-  //   //   if ( first4 == 8 ) {
-  //   //     Serial.println("Up");
-  //   //   } else {
-  //   //     Serial.println("Down");
-  //   //   }
-  //   // }
-  // }
 private:
   
   
@@ -728,16 +761,6 @@ private:
     }
     return read;
   }
-  
-  void reverse_array( byte array[], int arraylength ) {
-    for (int i = 0; i < (arraylength / 2); i++) {
-        byte temporary = array[i];                 // temporary wasn't declared
-        array[i] = array[(arraylength - 1) - i];
-        array[(arraylength - 1) - i] = temporary;
-    }
-}
-
-
 };
 
 
