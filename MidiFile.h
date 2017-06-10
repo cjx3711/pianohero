@@ -87,6 +87,7 @@ public:
   uint32_t trackPosition = 0;
   uint32_t trackLength;
   uint16_t format, tracks, division;
+  // Division is number of ticks per quarter note
   // Pointer to the 
   BlockPointers trackBlocks[2];
   Track trackBuffers[2];
@@ -183,8 +184,8 @@ public:
   void calculateScreenBoundaries() {
     screenBottom = trackPosition;
     screenTop = trackPosition + ((float)PIXELS_PER_KEY / (float)qNoteScreenSize) * division;
-    Serial.print("Screen Top: "); Serial.println(screenTop);
-    Serial.print("Screen Btm: "); Serial.println(screenBottom);
+    // Serial.print("Screen Top: "); Serial.println(screenTop);
+    // Serial.print("Screen Btm: "); Serial.println(screenBottom);
   }
   
   void setPosition(float perc) {
@@ -192,20 +193,20 @@ public:
     calculateScreenBoundaries();
     loadBlockLogic(0);
     loadBlockLogic(1);
-    Serial.println();
-    Serial.print("Pos: "); Serial.print(trackPosition); Serial.print('/'); Serial.println(trackLength);
+    // Serial.println();
+    // Serial.print("Pos: "); Serial.print(trackPosition); Serial.print('/'); Serial.println(trackLength);
+    // 
+    // Serial.println("Track 1: ");
+    // Serial.print(getBlock(0) + 1); Serial.print('/'); Serial.println(trackBlocks[0].maxBlocks);
+    // Serial.println(getBlockFloat(0) + 1);
+    // Serial.println(trackBuffers[0].currentlyLoaded);
+    // Serial.println("Track 2: ");
+    // Serial.print(getBlock(1) + 1); Serial.print('/'); Serial.println(trackBlocks[1].maxBlocks);
+    // Serial.println(getBlockFloat(1) + 1);
+    // Serial.println(trackBuffers[1].currentlyLoaded);
     
-    Serial.println("Track 1: ");
-    Serial.print(getBlock(0) + 1); Serial.print('/'); Serial.println(trackBlocks[0].maxBlocks);
-    Serial.println(getBlockFloat(0) + 1);
-    Serial.println(trackBuffers[0].currentlyLoaded);
-    Serial.println("Track 2: ");
-    Serial.print(getBlock(1) + 1); Serial.print('/'); Serial.println(trackBlocks[1].maxBlocks);
-    Serial.println(getBlockFloat(1) + 1);
-    Serial.println(trackBuffers[1].currentlyLoaded);
-    
-    printBuffers(0);
-    printBuffers(1);
+    // printBuffers(0);
+    // printBuffers(1);
   }
   bool allKeysReleased(uint32_t * keys) {
     for ( uint8_t i = 0; i < 88; i++ )
@@ -251,7 +252,7 @@ public:
     uint8_t size = 0; // Used for run on messages
     for ( uint8_t i = 0; i < 88; i++ ) noteTimes[i] = MAX32;
     
-    Serial.print("Loading block "); Serial.print((int)which); Serial.print(' '); Serial.println(block);
+    // Serial.print("Loading block "); Serial.print((int)which); Serial.print(' '); Serial.println(block);
     midiFile.seek(trackBlocks[which].filePos[block].position);
     uint32_t currentTime = trackBlocks[which].filePos[block].time;
     
@@ -658,7 +659,7 @@ public:
     switch ( metaType ) {
       case 0x51: { // Tempo event
         Serial.println("Tempo event");
-        tempo = readInt24(f); // uint32_t tempo = 
+        tempo = readInt24(f) / 1000; // uint32_t tempo = 
         Serial.print("Tempo: "); Serial.println(tempo);
         
         break;

@@ -9,6 +9,9 @@
 #define ROTARY_2 16
 #define ROTARY_B 17
 
+#define MODE_PLAY 1
+#define MODE_STOP 0
+#define MODE_REWIND 2
 
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(KEYS * PIXELS_PER_KEY, STRIP_PIN, NEO_RGB + NEO_KHZ800);
@@ -21,6 +24,7 @@ uint8_t dir = 0;
 
 long lastMillis = 0;
 long curMillis = 0;
+
 float pos = 0;
 float vel = 0;
 
@@ -30,6 +34,7 @@ bool lastBtnState;
 uint8_t maxBrightness = 16;
 
 MidiFile midi;
+uint8_t playMode = MODE_STOP;
 
 void setup() {
   Serial.begin(9600);
@@ -73,6 +78,15 @@ void setup() {
     printDirectory(root, 0);
     
     midi.openFile((char*)"test-one.mid");
+    pos = 0;
+    // Calculate quarter note length
+    vel = 1 / (float)((float)midi.trackLength / (float)midi.division);
+    Serial.println(vel * 100);
+    
+    // Calculate quarter note per second
+    vel = vel * (1000.0f / (float)midi.tempo);
+    Serial.println(vel * 100);
+    
   } else {
     Serial.println("SD fail");
   }
@@ -114,6 +128,7 @@ void changeBrightness() {
 }
 
 void loop() {
+  curMillis = millis();
   {
     bool b = digitalRead(ROTARY_B);
     bool c1 = digitalRead(ROTARY_1);
@@ -121,20 +136,21 @@ void loop() {
     // Serial.print(c1);
     // Serial.print('\t');
     // Serial.println(c2);
-    curMillis = millis();
+
     if (c1 != lastRotState && !c1) {
       if (c2 != c1) { 
-         Serial.println("Up");
-         pos -= 1 / (float)(((float)midi.trackLength / (float)midi.division) * (float)midi.qNoteScreenSize);
-         updatePos();
-         Serial.println(curMillis - lastMillis);
-       } else {
-         Serial.println("Down");
-         pos += 1 / (float)(((float)midi.trackLength / (float)midi.division) * (float)midi.qNoteScreenSize);
-         updatePos();
-         Serial.println(curMillis - lastMillis);
-         
-       }
+        if ( playMode == MODE_PLAY ) {
+          playMode = MODE_STOP;
+        } else {
+          playMode = MODE_REWIND;
+        }
+      } else {
+        if ( playMode == MODE_REWIND ) {
+          playMode = MODE_STOP;
+        } else {
+          playMode = MODE_PLAY;
+        }
+      }
     }
     if ( b != lastBtnState && !b ) {
       // Serial.println("Btn");
@@ -145,7 +161,25 @@ void loop() {
     lastBtnState = b;
   }
   
-
+  float delta = (float)(curMillis - lastMillis) / 1000.0f;
+  if ( playMode == MODE_PLAY ) {
+    pos += vel * delta * 1.5;
+  } else if ( playMode == MODE_REWIND ) {
+    pos -= vel * delta * 1.5;
+  }
+  
+  updatePos();
+  
+  
+  if ( pos >= 1 ) {
+    pos = 1;
+    playMode = MODE_STOP;
+  }
+  if ( pos <= 0 ) {
+    pos = 0;
+    playMode = MODE_STOP;
+  }
+  
 
   setScreenState();
   
@@ -156,7 +190,7 @@ void loop() {
 void updatePos() {
   if ( pos < 0 ) pos = 0;
   if ( pos > 1 ) pos = 1;
-  Serial.print("POS: "); Serial.println(pos);
+  // Serial.print("POS: "); Serial.println(pos);
 
   midi.setPosition(pos);
 }
