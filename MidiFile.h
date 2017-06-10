@@ -7,8 +7,9 @@
 #define MAX_BLOCKS 200
 
 // Notes that can be displayed on screen
-// Todo: This will eventually use the note length
-#define SCREEN_HEIGHT 10
+#define KEYS 5
+#define PIXELS_PER_KEY 24
+#define PIXELS KEYS * PIXELS_PER_KEY
 
 // min (8 * 4 * x) + (8 * (10000/x))
 
@@ -74,8 +75,8 @@ class MidiFile {
 public:
   uint8_t clocksPerTick;
   uint8_t notesPer24Clocks;
-  uint32_t tempo; 
-  uint8_t qNoteScreenSize = 2; // The height of a single quarter note
+  uint32_t tempo; // Microseconds per quarter note
+  uint8_t qNoteScreenSize = 4; // The height of a single quarter note
   uint32_t screenTop = 0;
   uint32_t screenBottom = 0;
   // Used for key counting
@@ -181,7 +182,7 @@ public:
   
   void calculateScreenBoundaries() {
     screenBottom = trackPosition;
-    screenTop = trackPosition + ((float)SCREEN_HEIGHT / (float)qNoteScreenSize) * division;
+    screenTop = trackPosition + ((float)PIXELS_PER_KEY / (float)qNoteScreenSize) * division;
     Serial.print("Screen Top: "); Serial.println(screenTop);
     Serial.print("Screen Btm: "); Serial.println(screenBottom);
   }

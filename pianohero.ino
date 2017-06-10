@@ -2,24 +2,25 @@
 
 #include "MidiFile.h"
 
-#define KEYS 6
-#define PIXELS_PER_KEY 10
-#define PIXELS KEYS * PIXELS_PER_KEY
+
 #define STRIP_PIN 24
 
 #define ROTARY_1 15
 #define ROTARY_2 16
 #define ROTARY_B 17
 
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(KEYS * PIXELS_PER_KEY, STRIP_PIN, NEO_RGB + NEO_KHZ800);
 
+
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(KEYS * PIXELS_PER_KEY, STRIP_PIN, NEO_RGB + NEO_KHZ800);
 
 float ledFloat;
 
 uint8_t pc1 = 1;
 uint8_t pc2 = 1;
 uint8_t dir = 0;
+
 long lastMillis = 0;
+long curMillis = 0;
 float pos = 0;
 float vel = 0;
 
@@ -27,6 +28,7 @@ bool lastRotState;
 bool lastBtnState;
 
 uint8_t maxBrightness = 16;
+
 MidiFile midi;
 
 void setup() {
@@ -43,7 +45,7 @@ void setup() {
   
   strip.begin();
   for ( int i = 0; i < PIXELS; i++ ) {
-    strip.setPixelColor(i, 15, 5, 5);
+    strip.setPixelColor(i, 10, 5, 3);
   }
   strip.show();
   
@@ -74,7 +76,6 @@ void setup() {
   } else {
     Serial.println("SD fail");
   }
-  
   
   for ( int i = 0; i < PIXELS; i++ ) {
     strip.setPixelColor(i, 0, 0, 0);
@@ -120,15 +121,19 @@ void loop() {
     // Serial.print(c1);
     // Serial.print('\t');
     // Serial.println(c2);
+    curMillis = millis();
     if (c1 != lastRotState && !c1) {
       if (c2 != c1) { 
          Serial.println("Up");
          pos -= 1 / (float)(((float)midi.trackLength / (float)midi.division) * (float)midi.qNoteScreenSize);
          updatePos();
+         Serial.println(curMillis - lastMillis);
        } else {
          Serial.println("Down");
          pos += 1 / (float)(((float)midi.trackLength / (float)midi.division) * (float)midi.qNoteScreenSize);
          updatePos();
+         Serial.println(curMillis - lastMillis);
+         
        }
     }
     if ( b != lastBtnState && !b ) {
@@ -139,10 +144,13 @@ void loop() {
     lastRotState = c1;
     lastBtnState = b;
   }
+  
 
-  // long curMillis = millis();
-  // float delta = (float)(curMillis - lastMillis) / 1000.0f;
+
   setScreenState();
+  
+  strip.show();
+  lastMillis = curMillis;
 }
 
 void updatePos() {
@@ -186,7 +194,7 @@ void setKBPixel(uint8_t key, uint8_t pos, float rP, float gP, float bP) {
   if ( pos < 0 ) pos = 0;
 
   int block = PIXELS_PER_KEY * key;
-  if ( key % 2 == 0 ) {
+  if ( key % 2 ) {
     block += pos;
   } else {
     block += PIXELS_PER_KEY - pos - 1;
@@ -198,7 +206,7 @@ void drawNote(uint8_t key, uint8_t pos, uint8_t len, uint8_t col) {
   // Serial.print(pos); Serial.print(' '); Serial.print(len); Serial.print(' '); Serial.println(key);
   for ( uint8_t i = 0; i < len; i++ ) {
     uint8_t dispPos = pos + i;
-    if ( dispPos < SCREEN_HEIGHT ) { // Out of screen
+    if ( dispPos < PIXELS_PER_KEY ) { // Out of screen
       if ( i == 0 ) {
         if ( col ) {
           setKBPixel(key, dispPos, 0, 1, 0.475);
